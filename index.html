@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>First Mate</title>
+<meta name="theme-color" content="#0f2a3d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="First Mate">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+/* First Mate V2I1. One column for a phone in one hand: top bar, one screen at a time, big tap targets.
+   Navy for the Reno Captain family, signal orange only for the main action on each screen. System fonts so it works offline. */
+:root {
+  --bg: #f3f5f6; --panel: #ffffff; --fg: #15212a; --muted: #5d6b74; --line: #d8dee2;
+  --nav: #0f2a3d; --nav-ink: #ffffff; --accent: #c8510f; --accent-ink: #ffffff;
+  --ok: #1f7a45; --warn: #9a6200; --bad: #b3261e; --chip: #e9edf0; --sel: #fde9dc;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f161b; --panel: #172128; --fg: #e6ecef; --muted: #98a6ae; --line: #2a3740;
+    --nav: #0a1c29; --accent: #f07a35; --accent-ink: #1a0d05; --ok: #5cc98b; --warn: #e6b04a; --bad: #f2867d; --chip: #22303a; --sel: #3a2618; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 16px; line-height: 1.4; -webkit-text-size-adjust: 100%; touch-action: manipulation; }
+[hidden] { display: none !important; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; cursor: pointer; }
+.top { position: sticky; top: 0; z-index: 5; background: var(--nav); color: var(--nav-ink); display: flex; align-items: center; gap: 8px;
+  padding: max(8px, env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px)) 8px max(10px, env(safe-area-inset-left, 0px)); min-height: 56px; }
+.top h1 { flex: 1; min-width: 0; margin: 0; font-size: 1.05rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top .total { font-family: var(--mono); font-size: .95rem; }
+.top button { background: transparent; border: 1px solid rgba(255,255,255,.35); color: var(--nav-ink); border-radius: 8px; min-height: 40px; padding: 0 12px; font-weight: 600; }
+.main { max-width: 640px; margin: 0 auto; padding: 14px max(14px, env(safe-area-inset-right, 0px)) max(96px, env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+.muted { color: var(--muted); font-size: .9rem; }
+.small { font-size: .85rem; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.btn { min-height: 50px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--chip); font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.wide { width: 100%; }
+.btn.slim { min-height: 38px; padding: 0 12px; font-size: .9rem; }
+.btn.danger { color: var(--bad); }
+.btn:disabled { opacity: .45; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row > * { flex: 1 1 140px; min-width: 0; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field > span { font-size: .85rem; color: var(--muted); }
+input[type=text], input[type=email], input[type=number], input[type=search], select, textarea {
+  font-size: 16px; min-height: 48px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); width: 100%; }
+textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { flex: 1; min-height: 46px; border: 0; background: var(--panel); font-weight: 600; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button.on { background: var(--nav); color: var(--nav-ink); }
+.list { display: flex; flex-direction: column; }
+.item { display: flex; gap: 10px; align-items: center; padding: 12px 2px; border-bottom: 1px solid var(--line); background: none; border-left: 0; border-right: 0; border-top: 0; text-align: left; width: 100%; min-height: 56px; }
+.item:last-child { border-bottom: 0; }
+.item .grow { flex: 1; min-width: 0; }
+.item .t { font-weight: 600; }
+.item .s { color: var(--muted); font-size: .85rem; }
+.item .amt { font-family: var(--mono); font-size: .9rem; white-space: nowrap; }
+.thumb { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; background: var(--chip); flex: none; }
+.thumb.empty { display: inline-flex; align-items: center; justify-content: center; color: var(--muted); font-size: .7rem; text-align: center; }
+.star { background: none; border: 0; font-size: 1.4rem; line-height: 1; width: 44px; height: 44px; color: var(--muted); flex: none; }
+.star.on { color: #e0a100; }
+.pill { display: inline-block; font-size: .75rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.pill.warn { color: var(--warn); border-color: var(--warn); }
+.pill.ok { color: var(--ok); border-color: var(--ok); }
+.note { padding: 10px 12px; border-radius: 10px; background: var(--chip); font-size: .92rem; }
+.note.warn { color: var(--warn); }
+.note.bad { color: var(--bad); }
+.note.ok { color: var(--ok); }
+.photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.ph { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 3px solid transparent; padding: 0; background: var(--chip); }
+.ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ph.on { border-color: var(--accent); }
+.ph .x { position: absolute; right: 2px; top: 2px; background: rgba(0,0,0,.6); color: #fff; border-radius: 999px; font-size: .7rem; padding: 1px 6px; }
+.fab { position: fixed; left: 0; right: 0; bottom: 0; z-index: 4; display: flex; gap: 8px; background: var(--bg); border-top: 1px solid var(--line);
+  padding: 10px max(14px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px)); }
+.fab .btn { flex: 1; min-height: 56px; font-size: 1.05rem; }
+.crumb { color: var(--muted); font-size: .85rem; }
+.tabs { display: flex; gap: 6px; overflow-x: auto; }
+.tabs button { flex: none; }
+.layer { position: fixed; inset: 0; background: #000; z-index: 30; display: flex; flex-direction: column; color: #fff; }
+.layer-bar { display: flex; justify-content: space-between; align-items: center; padding: max(8px, env(safe-area-inset-top, 0px)) 14px 8px; font-family: var(--mono); font-size: .85rem; }
+.cam-video { flex: 1; min-height: 0; width: 100%; object-fit: cover; touch-action: none; }
+.cam-controls { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px max(20px, env(safe-area-inset-bottom, 0px)); }
+.cam-thumb { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; background: #222; border: 2px solid #444; }
+.shutter { width: 78px; height: 78px; border-radius: 50%; border: 5px solid #fff; background: rgba(255,255,255,.2); }
+.shutter:active { background: #fff; }
+.cam-done { min-width: 96px; min-height: 48px; border-radius: 10px; border: 0; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.viewer { flex: 1; overflow: auto; }
+.viewer img { width: 100%; display: block; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--panel); width: 100%; max-width: 640px; border-radius: 16px 16px 0 0; padding: 16px max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: 10px; max-height: 85vh; overflow: auto; }
+@media (prefers-reduced-motion: reduce) { .flash { transition: none; } }
+</style>
+</head>
+<body>
+<header class="top"><button id="t-back" hidden>Back</button><h1 id="t-title">First Mate</h1><span class="total" id="t-total"></span></header>
+<main class="main" id="app"></main>
+<div class="fab" id="fab" hidden></div>
+<div class="modal" id="modal" hidden><div class="sheet" id="sheet"></div></div>
+
+<div class="layer" id="cam" hidden>
+  <div class="layer-bar"><span id="cam-info">Starting camera…</span><span id="cam-count">0 taken</span></div>
+  <video class="cam-video" id="cam-video" playsinline muted autoplay></video>
+  <div class="flash" id="cam-flash"></div>
+  <div class="cam-controls"><img class="cam-thumb" id="cam-thumb" alt=""><button class="shutter" id="cam-shutter" aria-label="Take photo"></button><button class="cam-done" id="cam-done">Done</button></div>
+</div>
+<div class="layer" id="viewer" hidden>
+  <div class="layer-bar"><span id="viewer-info"></span><button class="btn slim" id="viewer-close">Close</button></div>
+  <div class="viewer"><img id="viewer-img" alt="Photo"></div>
+</div>
+<input type="file" id="i-lib" accept="image/*" multiple hidden>
+<input type="file" id="i-data" accept=".json,application/json" hidden>
+
+<script>
+(() => {
+'use strict';
+const VERSION = 'V2I1';
+const MAX_EDGE = 3000, QUALITY = 0.85, THUMB = 240;
+const QTY_TYPES = ['Num of Units', 'Linear Ft', 'Sqft', 'Sqr Yards'];
+const UNIT_SHORT = { 'Num of Units': 'ea', 'Linear Ft': 'LF', 'Sqft': 'SF', 'Sqr Yards': 'SY' };
+const $ = (id) => document.getElementById(id);
+const money = (n) => '$' + (Math.round((n || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const norm = (s) => String(s || '').toLowerCase();
+
+// Tiny element builder: h('div', {class:'x', onclick: fn}, child, 'text', ...)
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'class') el.className = v;
+    else if (k === 'value') el.value = v;
+    else if (k === 'checked') el.checked = !!v;
+    else if (k === 'text') el.textContent = v;
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat()) { if (c == null || c === false) continue; el.append(c instanceof Node ? c : document.createTextNode(String(c))); }
+  return el;
+}
+
+// ---------- Storage ----------
+let idb;
+const openDb = () => new Promise((res, rej) => {
+  const r = indexedDB.open('first-mate', 1);
+  r.onupgradeneeded = () => {
+    const d = r.result;
+    d.createObjectStore('budgets', { keyPath: 'id' });
+    const p = d.createObjectStore('photos', { keyPath: 'id' }); p.createIndex('budget', 'budgetId');
+    d.createObjectStore('kv', { keyPath: 'key' });
+  };
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+});
+const tx = (store, mode, fn) => new Promise((res, rej) => {
+  const t = idb.transaction(store, mode); const out = fn(t.objectStore(store));
+  t.oncomplete = () => res(out instanceof IDBRequest ? out.result : out);
+  t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('Storage full or blocked'));
+});
+const getAll = (s) => tx(s, 'readonly', (o) => o.getAll());
+const getOne = (s, k) => tx(s, 'readonly', (o) => o.get(k));
+const put = (s, v) => tx(s, 'readwrite', (o) => { o.put(v); });
+const del = (s, k) => tx(s, 'readwrite', (o) => { o.delete(k); });
+const kvGet = async (k, dflt) => { const r = await getOne('kv', k); return r ? r.value : dflt; };
+const kvSet = (k, v) => put('kv', { key: k, value: v });
+const photosFor = (budgetId) => tx('photos', 'readonly', (o) => o.index('budget').getAll(budgetId));
+
+const S = { data: null, budgets: [], budget: null, photos: new Map(), urls: new Map(), prefs: { favVendors: [], favContacts: [], favRooms: [], recent: [] }, nav: [], screen: null, params: {} };
+
+async function saveBudget() { if (!S.budget) return; S.budget.updated = Date.now(); await put('budgets', S.budget); }
+async function savePrefs() { await kvSet('prefs', S.prefs); }
+const itemById = (id) => S.data.items.find((i) => i.id === id);
+const market = (id) => S.data.markets.find((m) => m.id === id);
+const vendorById = (id) => S.data.vendors.find((v) => v.id === id);
+const lineTotal = (l) => (l.qty || 0) * (l.price || 0);
+const budgetTotal = (b) => b.lines.reduce((a, l) => a + lineTotal(l), 0);
+const roomLabel = (r) => r.desc ? `${r.type} - ${r.desc}` : `${r.type} - ${r.type}`;
+const roomShort = (r) => r.desc ? `${r.type} - ${r.desc}` : r.type;
+
+function thumbUrl(pid) {
+  const p = S.photos.get(pid); if (!p) return '';
+  if (S.urls.has(pid)) return S.urls.get(pid);
+  const u = URL.createObjectURL(p.thumb); S.urls.set(pid, u); return u;
+}
+
+// ---------- Navigation ----------
+function go(screen, params, replace) {
+  if (S.screen && !replace) S.nav.push({ screen: S.screen, params: S.params });
+  S.screen = screen; S.params = params || {};
+  render(); window.scrollTo(0, 0);
+}
+function back() { const p = S.nav.pop(); if (!p) { go('home', {}, true); return; } S.screen = p.screen; S.params = p.params; render(); }
+$('t-back').onclick = () => back();
+
+function setTop(title, showBack, showTotal) {
+  $('t-title').textContent = title; $('t-back').hidden = !showBack;
+  $('t-total').textContent = showTotal && S.budget ? money(budgetTotal(S.budget)) : '';
+}
+function setFab(...buttons) { const f = $('fab'); f.replaceChildren(...buttons); f.hidden = !buttons.length; }
+function openSheet(...kids) { $('sheet').replaceChildren(...kids); $('modal').hidden = false; }
+function closeSheet() { $('modal').hidden = true; $('sheet').replaceChildren(); }
+$('modal').addEventListener('click', (e) => { if (e.target === $('modal')) closeSheet(); });
+
+function render() {
+  const app = $('app'); app.replaceChildren(); setFab(); closeSheet();
+  if (!S.data && S.screen !== 'data') { S.screen = 'data'; }
+  const fn = SCREENS[S.screen] || SCREENS.home;
+  fn(app, S.params);
+}
+
+// ---------- Screens ----------
+const SCREENS = {};
+
+SCREENS.data = (app) => {
+  setTop('First Mate', false);
+  app.append(
+    h('div', { class: 'card' },
+      h('h2', { text: 'Load the data file' }),
+      h('p', { class: 'muted', text: 'First Mate needs its item, vendor and room lists. They are kept in a file you load once on this phone (not on the public website), then the tool works offline.' }),
+      h('p', { class: 'muted', text: 'Save first-mate-data-tampa-v1.json to Files (or iCloud Drive / OneDrive), then tap below and pick it.' }),
+      h('button', { class: 'btn primary wide', onclick: () => $('i-data').click() }, 'Choose data file'),
+      S.dataError ? h('div', { class: 'note bad', text: S.dataError }) : null));
+};
+$('i-data').onchange = async (e) => {
+  const f = e.target.files && e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    if (d.format !== 'first-mate-data' || !Array.isArray(d.items) || !d.items.length) throw new Error('not a First Mate data file');
+    await kvSet('data', d); S.data = d; S.dataError = null;
+    go('home', {}, true);
+  } catch (err) { S.dataError = `That file couldn't be loaded (${err.message}).`; render(); }
+};
+
+SCREENS.home = async (app) => {
+  S.budget = null; S.nav = [];
+  setTop('First Mate', false);
+  S.budgets = (await getAll('budgets')).sort((a, b) => b.updated - a.updated);
+  if (S.screen !== 'home') return;
+  const list = h('div', { class: 'list' });
+  if (!S.budgets.length) list.append(h('p', { class: 'muted', text: 'No walks yet. Tap New walk to start.' }));
+  for (const b of S.budgets) {
+    const ph = new Set(b.lines.flatMap((l) => l.photoIds)).size;
+    list.append(h('button', { class: 'item', onclick: () => openBudget(b.id) },
+      h('div', { class: 'grow' },
+        h('div', { class: 't', text: b.header.address || '(no address yet)' }),
+        h('div', { class: 's', text: `${b.header.propertyCode || 'no property code'} · ${pl(b.rooms.length, 'room')} · ${pl(b.lines.length, 'line')} · ${pl(ph, 'photo')}` }),
+        h('div', { class: 's', text: `Draft · updated ${new Date(b.updated).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` })),
+      h('span', { class: 'amt', text: money(budgetTotal(b)) })));
+  }
+  app.append(
+    h('div', { class: 'card' }, h('h2', { text: 'Walks on this phone' }), list),
+    h('div', { class: 'card' },
+      h('div', { class: 'muted', text: `${S.data.label} · version ${S.data.version} · built ${S.data.built} · ${S.data.items.length} items` }),
+      h('div', { class: 'muted small', text: `First Mate ${VERSION} test build. Weekly data updates come in a later milestone.` }),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn slim', onclick: () => $('i-data').click() }, 'Replace data file'),
+        h('button', { class: 'btn slim', onclick: copySummary }, 'Copy test summary'))));
+  setFab(h('button', { class: 'btn primary', onclick: newBudget }, 'New walk'));
+};
+
+async function openBudget(id) {
+  S.budget = S.budgets.find((b) => b.id === id) || await getOne('budgets', id);
+  const ps = await photosFor(id); S.photos = new Map(ps.map((p) => [p.id, p]));
+  go('budget', {});
+}
+async function newBudget() {
+  const last = await kvGet('lastMarket', 'TPA');
+  const m = market(last) || S.data.markets[0];
+  const b = { id: uid(), created: Date.now(), updated: Date.now(), status: 'Draft',
+    header: { market: m.id, address: '', city: '', state: m.state, propertyCode: '', homeType: 'Renovate', sow: false, rd: m.rd, rdEmail: m.rdEmail, photoMode: 'live', underAir: '', underRoof: '', beds: '', baths: '', stateOk: false },
+    vendors: [{ slot: uid(), service: 'General Contractor', vendorId: null, contactId: null, primary: true }],
+    rooms: [], lines: [] };
+  if (navigator.storage && navigator.storage.persist) { try { await navigator.storage.persist(); } catch (e) { /* ignore */ } }
+  await put('budgets', b); S.budget = b; S.photos = new Map();
+  S.nav = [{ screen: 'home', params: {} }];
+  S.screen = 'header'; S.params = { first: true }; render();
+}
+
+// Budget overview: rooms, totals, and the way into header/vendors.
+SCREENS.budget = (app) => {
+  const b = S.budget; setTop(b.header.address || 'New walk', true, true);
+  const byRoom = (rid) => b.lines.filter((l) => l.roomId === rid);
+  const rooms = h('div', { class: 'list' });
+  if (!b.rooms.length) rooms.append(h('p', { class: 'muted', text: 'No rooms yet.' }));
+  for (const r of b.rooms) {
+    const ls = byRoom(r.id); const ph = new Set(ls.flatMap((l) => l.photoIds)).size;
+    rooms.append(h('button', { class: 'item', onclick: () => go('room', { roomId: r.id }) },
+      h('div', { class: 'grow' }, h('div', { class: 't', text: roomShort(r) }), h('div', { class: 's', text: `${pl(ls.length, 'line')} · ${pl(ph, 'photo')}` })),
+      h('span', { class: 'amt', text: money(ls.reduce((a, l) => a + lineTotal(l), 0)) })));
+  }
+  const h0 = b.header; const m = market(h0.market);
+  const missing = [!h0.address && 'address', !h0.propertyCode && 'property code'].filter(Boolean);
+  app.append(
+    h('div', { class: 'card' },
+      h('div', { class: 'row' },
+        h('div', {}, h('div', { class: 't', text: `${m ? m.id + ' · ' + m.city : h0.market} · ${h0.homeType}${h0.homeType === 'Renovate' ? (h0.sow ? ' · client SOW' : ' · no SOW') : ''}` }),
+          h('div', { class: 'muted small', text: `RD ${h0.rd || '—'} · ${b.vendors.length} vendor slot${b.vendors.length === 1 ? '' : 's'}` })),
+        h('div', { class: 'row', style: 'flex:0 0 auto' },
+          h('button', { class: 'btn slim', onclick: () => go('header', {}) }, 'Header'),
+          h('button', { class: 'btn slim', onclick: () => go('vendors', {}) }, 'Vendors'))),
+      missing.length ? h('div', { class: 'note warn', text: `Still needed: ${missing.join(', ')}.` }) : null),
+    h('div', { class: 'card' }, h('h2', { text: 'Rooms' }), rooms,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn', onclick: addRoomSheet }, 'Add room'),
+        (h0.beds || h0.baths) && !b.rooms.some((r) => r.type === 'Bedroom' || r.type === 'Bathroom') ? h('button', { class: 'btn', onclick: quickSetup }, `Quick setup ${h0.beds || 0}/${h0.baths || 0}`) : null)));
+  setFab(h('button', { class: 'btn', onclick: () => go('home', {}, true) }, 'Back to walks'));
+};
+
+SCREENS.header = (app, p) => {
+  const b = S.budget, hd = b.header; setTop(p.first ? 'New walk' : 'Property header', true, !p.first);
+  const m = market(hd.market);
+  const states = Array.from(new Set(S.data.markets.map((x) => x.state).concat(['Other']))).sort();
+  const priced = (S.data.pricedMarkets || []).includes(hd.market);
+  const mismatch = hd.state && m && hd.state !== m.state;
+  const upd = async (k, v, rerender) => { hd[k] = v; if (k === 'state' || k === 'market') hd.stateOk = false; await saveBudget(); if (rerender) render(); };
+  const seg = (k, opts) => h('div', { class: 'seg' }, ...opts.map(([val, label]) => h('button', { class: hd[k] === val ? 'on' : '', onclick: () => upd(k, val, true) }, label)));
+  app.append(h('div', { class: 'card' },
+    h('label', { class: 'field' }, h('span', { text: 'Market' }),
+      h('select', { onchange: async (e) => { const mm = market(e.target.value); hd.rd = mm.rd; hd.rdEmail = mm.rdEmail; await kvSet('lastMarket', mm.id); upd('market', mm.id, true); } },
+        ...S.data.markets.map((x) => h('option', { value: x.id, selected: x.id === hd.market ? true : null }, `${x.id} · ${x.city}, ${x.state}`)))),
+    priced ? null : h('div', { class: 'note warn', text: 'This test build only has Tampa pricing; items will show Tampa prices.' }),
+    h('label', { class: 'field' }, h('span', { text: 'Street address' }), h('input', { type: 'text', value: hd.address, autocomplete: 'street-address', onchange: (e) => upd('address', e.target.value.trim()) })),
+    h('div', { class: 'row' },
+      h('label', { class: 'field' }, h('span', { text: 'City' }), h('input', { type: 'text', value: hd.city, onchange: (e) => upd('city', e.target.value.trim()) })),
+      h('label', { class: 'field' }, h('span', { text: 'State' }), h('select', { onchange: (e) => upd('state', e.target.value, true) }, ...states.map((s) => h('option', { value: s, selected: s === hd.state ? true : null }, s))))),
+    mismatch ? h('div', { class: 'note warn' },
+      h('div', { text: `${hd.state} doesn't match the ${m.city} market (${m.state}). Check the market before you start.` }),
+      h('label', { class: 'row', style: 'margin-top:8px' }, h('input', { type: 'checkbox', checked: hd.stateOk, style: 'flex:0 0 auto;width:22px;height:22px', onchange: (e) => upd('stateOk', e.target.checked) }), h('span', { text: 'The market is correct for this home' }))) : null,
+    h('label', { class: 'field' }, h('span', { text: 'Property code' }), h('input', { type: 'text', value: hd.propertyCode, autocapitalize: 'characters', onchange: (e) => upd('propertyCode', e.target.value.trim()) })),
+    h('div', { class: 'field' }, h('span', { text: 'Home type' }), seg('homeType', [['Express', 'Express'], ['Renovate', 'Renovate']])),
+    hd.homeType === 'Renovate' ? h('div', { class: 'field' }, h('span', { text: 'Client SOW provided?' }), seg('sow', [[true, 'Yes'], [false, 'No']])) : null,
+    h('div', { class: 'row' },
+      h('label', { class: 'field' }, h('span', { text: 'RD / reviewer' }), h('input', { type: 'text', value: hd.rd, onchange: (e) => upd('rd', e.target.value.trim()) })),
+      h('label', { class: 'field' }, h('span', { text: 'RD email' }), h('input', { type: 'email', value: hd.rdEmail, onchange: (e) => upd('rdEmail', e.target.value.trim()) }))),
+    h('div', { class: 'field' }, h('span', { text: 'Photo mode (default; switch any time on a line)' }), seg('photoMode', [['live', 'Live build'], ['roll', 'Camera roll']])),
+    h('div', { class: 'row' },
+      h('label', { class: 'field' }, h('span', { text: 'Under air sq ft (optional)' }), h('input', { type: 'text', inputmode: 'numeric', value: hd.underAir, onchange: (e) => upd('underAir', e.target.value.trim()) })),
+      h('label', { class: 'field' }, h('span', { text: 'Under roof sq ft (optional)' }), h('input', { type: 'text', inputmode: 'numeric', value: hd.underRoof, onchange: (e) => upd('underRoof', e.target.value.trim()) }))),
+    h('div', { class: 'row' },
+      h('label', { class: 'field' }, h('span', { text: 'Beds (optional)' }), h('input', { type: 'text', inputmode: 'numeric', value: hd.beds, onchange: (e) => upd('beds', e.target.value.trim()) })),
+      h('label', { class: 'field' }, h('span', { text: 'Baths (optional)' }), h('input', { type: 'text', inputmode: 'numeric', value: hd.baths, onchange: (e) => upd('baths', e.target.value.trim()) })))));
+  setFab(h('button', { class: 'btn primary', onclick: () => {
+    if (mismatch && !hd.stateOk) { alertNote('Confirm the market first: the state doesn\'t match.'); return; }
+    if (p.first) { S.screen = 'vendors'; S.params = { first: true }; render(); } else back();
+  } }, p.first ? 'Next: vendors' : 'Done'));
+};
+function alertNote(text) { openSheet(h('div', { class: 'note warn', text }), h('button', { class: 'btn wide', onclick: closeSheet }, 'OK')); }
+
+SCREENS.vendors = (app, p) => {
+  const b = S.budget; setTop('Vendors', true, !p.first);
+  const list = h('div', { class: 'list' });
+  for (const s of b.vendors) {
+    const v = s.vendorId && vendorById(s.vendorId); const c = v && v.contacts.find((x) => x.id === s.contactId);
+    list.append(h('button', { class: 'item', onclick: () => vendorSlotSheet(s) },
+      h('div', { class: 'grow' },
+        h('div', { class: 't', text: (s.primary ? 'Primary GC · ' : '') + s.service }),
+        h('div', { class: 's', text: v ? `${v.name}${c ? ' · ' + c.email : ''}` : 'Vendor not chosen yet' })),
+      h('span', { class: 'pill', text: pl(b.lines.filter((l) => l.slot === s.slot).length, 'line') })));
+  }
+  app.append(h('div', { class: 'card' },
+    h('p', { class: 'muted', text: 'Set up the trades first so every line lands on the right vendor. New lines go to the Primary GC.' }), list,
+    h('button', { class: 'btn', onclick: () => vendorSlotSheet(null) }, '+ Add vendor')));
+  setFab(h('button', { class: 'btn primary', onclick: () => { if (p.first) { S.screen = 'budget'; S.params = {}; S.nav = [{ screen: 'home', params: {} }]; render(); } else back(); } }, p.first ? 'Next: rooms' : 'Done'));
+};
+
+function vendorSlotSheet(slot) {
+  const b = S.budget;
+  const st = { service: slot ? slot.service : 'General Contractor', vendorId: slot ? slot.vendorId : null, contactId: slot ? slot.contactId : null };
+  const draw = () => {
+    const vs = S.data.vendors.filter((v) => v.service === st.service)
+      .sort((a, c) => (S.prefs.favVendors.includes(c.id) - S.prefs.favVendors.includes(a.id)) || a.name.localeCompare(c.name));
+    const v = st.vendorId && vendorById(st.vendorId);
+    const contacts = v ? v.contacts.slice().sort((a, c) => S.prefs.favContacts.includes(c.id) - S.prefs.favContacts.includes(a.id)) : [];
+    const star = (arr, id) => h('button', { class: 'star' + (S.prefs[arr].includes(id) ? ' on' : ''), 'aria-label': 'Favorite', onclick: async (e) => {
+      e.stopPropagation(); const a = S.prefs[arr]; const i = a.indexOf(id); if (i >= 0) a.splice(i, 1); else a.push(id); await savePrefs(); draw(); } }, '★');
+    openSheet(
+      h('h2', { text: slot ? 'Vendor slot' : 'Add vendor' }),
+      slot && slot.primary ? h('div', { class: 'muted small', text: 'Primary GC: new lines go here.' }) : null,
+      h('label', { class: 'field' }, h('span', { text: 'Vendor service' }),
+        h('select', { onchange: (e) => { st.service = e.target.value; st.vendorId = null; st.contactId = null; draw(); } },
+          ...S.data.services.map((s) => h('option', { value: s, selected: s === st.service ? true : null }, s)))),
+      h('div', { class: 'field' }, h('span', { text: 'Vendor (★ favorites first)' }),
+        h('div', { class: 'list' },
+          h('button', { class: 'item' + (st.vendorId ? '' : ' sel'), onclick: () => { st.vendorId = null; st.contactId = null; draw(); } }, h('div', { class: 'grow' }, h('div', { class: 't', text: 'Not chosen yet' }), h('div', { class: 's', text: 'Fill in later; lines follow' })), st.vendorId ? null : h('span', { class: 'pill ok', text: 'selected' })),
+          vs.length ? vs.map((x) => h('div', { class: 'item' }, star('favVendors', x.id),
+            h('button', { class: 'grow', style: 'background:none;border:0;text-align:left;min-height:44px', onclick: () => { st.vendorId = x.id; const fav = x.contacts.find((c) => S.prefs.favContacts.includes(c.id)); st.contactId = (fav || x.contacts[0]).id; draw(); } },
+              h('div', { class: 't', text: x.name }), h('div', { class: 's', text: `${x.contacts.length} contact${x.contacts.length === 1 ? '' : 's'}` })),
+            st.vendorId === x.id ? h('span', { class: 'pill ok', text: 'selected' }) : null)) : h('p', { class: 'muted small', text: 'No vendors for this service in the test data.' }))),
+      v ? h('div', { class: 'field' }, h('span', { text: 'Contact (★ sets the default for this vendor)' }),
+        h('div', { class: 'list' }, ...contacts.map((c) => h('div', { class: 'item' }, star('favContacts', c.id),
+          h('button', { class: 'grow', style: 'background:none;border:0;text-align:left;min-height:44px', onclick: () => { st.contactId = c.id; draw(); } }, h('div', { text: c.email })),
+          st.contactId === c.id ? h('span', { class: 'pill ok', text: 'selected' }) : null)))) : null,
+      h('div', { class: 'row' },
+        slot && !slot.primary ? h('button', { class: 'btn danger', onclick: async () => {
+          const n = b.lines.filter((l) => l.slot === slot.slot).length;
+          const pg = b.vendors.find((x) => x.primary) || b.vendors[0];
+          b.lines.forEach((l) => { if (l.slot === slot.slot) l.slot = pg.slot; });
+          b.vendors = b.vendors.filter((x) => x !== slot); await saveBudget(); closeSheet(); render();
+          if (n) alertNote(`${n} line${n === 1 ? '' : 's'} moved to the Primary GC.`);
+        } }, 'Remove slot') : null,
+        h('button', { class: 'btn primary', onclick: async () => {
+          if (slot) Object.assign(slot, st); else b.vendors.push({ slot: uid(), ...st, primary: false });
+          await saveBudget(); closeSheet(); render(); } }, 'Save')));
+  };
+  draw();
+}
+
+function addRoomSheet() {
+  const st = { type: null, desc: '' };
+  const draw = () => {
+    const rooms = S.data.rooms.slice().sort((a, c) => (S.prefs.favRooms.includes(c) - S.prefs.favRooms.includes(a)) || S.data.rooms.indexOf(a) - S.data.rooms.indexOf(c));
+    const dup = st.type && S.budget.rooms.some((r) => r.type === st.type && norm(r.desc) === norm(st.desc));
+    openSheet(
+      h('h2', { text: 'Add room' }),
+      st.type ? h('div', { class: 'field' }, h('span', { text: `${st.type}: description (e.g., Primary, Guest, Bed 2)` }),
+        h('input', { type: 'text', value: st.desc, id: 'room-desc', oninput: (e) => { st.desc = e.target.value; } }),
+        dup ? h('div', { class: 'note warn', text: 'A room with that name already exists. Add a different description.' }) : null,
+        h('div', { class: 'row' },
+          h('button', { class: 'btn', onclick: () => { st.type = null; st.desc = ''; draw(); } }, 'Change room'),
+          h('button', { class: 'btn primary', onclick: async () => {
+            st.desc = ($('room-desc').value || '').trim();
+            if (S.budget.rooms.some((r) => r.type === st.type && norm(r.desc) === norm(st.desc))) { draw(); return; }
+            const r = { id: uid(), type: st.type, desc: st.desc }; S.budget.rooms.push(r); await saveBudget(); closeSheet(); go('room', { roomId: r.id });
+          } }, 'Add'))) : null,
+      st.type ? null : h('div', { class: 'list' }, ...rooms.map((r) => h('div', { class: 'item' },
+        h('button', { class: 'star' + (S.prefs.favRooms.includes(r) ? ' on' : ''), 'aria-label': 'Favorite', onclick: async () => { const a = S.prefs.favRooms; const i = a.indexOf(r); if (i >= 0) a.splice(i, 1); else a.push(r); await savePrefs(); draw(); } }, '★'),
+        h('button', { class: 'grow', style: 'background:none;border:0;text-align:left;min-height:44px;font-weight:600', onclick: () => { st.type = r; draw(); setTimeout(() => $('room-desc') && $('room-desc').focus(), 50); } }, r)))));
+  };
+  draw();
+}
+async function quickSetup() {
+  const hd = S.budget.header; const beds = parseInt(hd.beds, 10) || 0; const baths = Math.floor(parseFloat(hd.baths) || 0);
+  const add = (type, desc) => { if (!S.budget.rooms.some((r) => r.type === type && norm(r.desc) === norm(desc))) S.budget.rooms.push({ id: uid(), type, desc }); };
+  for (let i = 1; i <= beds; i++) add('Bedroom', i === 1 ? 'Primary' : `Bed ${i}`);
+  for (let i = 1; i <= baths; i++) add('Bathroom', i === 1 ? 'Primary' : i === 2 ? 'Guest' : `Bath ${i}`);
+  await saveBudget(); render();
+}
+
+// Room: its lines, plus camera / add item.
+SCREENS.room = (app, p) => {
+  const b = S.budget; const r = b.rooms.find((x) => x.id === p.roomId); if (!r) { back(); return; }
+  setTop(roomShort(r), true, true);
+  const ls = b.lines.filter((l) => l.roomId === r.id);
+  const list = h('div', { class: 'list' });
+  if (!ls.length) list.append(h('p', { class: 'muted', text: 'No lines yet. Take photos, then pick the item, or add an item first.' }));
+  for (const l of ls) {
+    const first = l.photoIds[0];
+    list.append(h('button', { class: 'item', onclick: () => go('line', { lineId: l.id }) },
+      first && S.photos.has(first) ? h('img', { class: 'thumb', src: thumbUrl(first), alt: '' }) : h('span', { class: 'thumb empty', text: 'no photo' }),
+      h('div', { class: 'grow' }, h('div', { class: 't', text: l.name }),
+        h('div', { class: 's', text: `${l.qty} ${UNIT_SHORT[l.qtyType] || ''} · ${l.photoIds.length} photo${l.photoIds.length === 1 ? '' : 's'}${b.header.homeType === 'Express' || b.header.sow ? (l.scope ? ' · ' + l.scope : ' · MRI/SOW or PM-ADD?') : ''}` })),
+      h('span', { class: 'amt', text: money(lineTotal(l)) })));
+  }
+  app.append(h('div', { class: 'card' },
+    h('div', { class: 'row' }, h('div', { class: 'muted small', text: `${pl(ls.length, 'line')} · ${money(ls.reduce((a, l) => a + lineTotal(l), 0))}` }),
+      h('button', { class: 'btn slim', style: 'flex:0 0 auto', onclick: () => editRoomSheet(r) }, 'Rename')), list));
+  const live = b.header.photoMode === 'live';
+  const camBtn = h('button', { class: 'btn' + (live ? ' primary' : ''), onclick: () => openCamera((ids) => { if (ids.length) go('picker', { roomId: r.id, photoIds: ids }); }) }, 'Camera');
+  const addBtn = h('button', { class: 'btn' + (live ? '' : ' primary'), onclick: () => go('picker', { roomId: r.id, photoIds: [] }) }, 'Add item');
+  setFab(...(live ? [camBtn, addBtn] : [addBtn, camBtn]));
+};
+function editRoomSheet(r) {
+  openSheet(h('h2', { text: `Rename ${r.type}` }),
+    h('label', { class: 'field' }, h('span', { text: 'Description' }), h('input', { type: 'text', id: 'rn', value: r.desc })),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn danger', onclick: async () => {
+        const n = S.budget.lines.filter((l) => l.roomId === r.id).length;
+        if (n) { alertNote(`This room has ${n} line${n === 1 ? '' : 's'}. Delete them first.`); return; }
+        S.budget.rooms = S.budget.rooms.filter((x) => x !== r); await saveBudget(); closeSheet(); back(); } }, 'Delete room'),
+      h('button', { class: 'btn primary', onclick: async () => {
+        const d = $('rn').value.trim();
+        if (S.budget.rooms.some((x) => x !== r && x.type === r.type && norm(x.desc) === norm(d))) { alertNote('Another room already has that name.'); return; }
+        r.desc = d; await saveBudget(); closeSheet(); render(); } }, 'Save')));
+}
+
+// Item picker: search, recent, browse.
+SCREENS.picker = (app, p) => {
+  setTop('Pick the item', true, true);
+  const st = S.pickerState = S.pickerState && S.pickerState.key === p.roomId ? S.pickerState : { key: p.roomId, q: '', cat: null, sub: null };
+  const results = h('div', { class: 'list' });
+  const choose = (it) => createLine(it, p.roomId, p.photoIds || []);
+  const row = (it) => h('button', { class: 'item', onclick: () => choose(it) },
+    h('div', { class: 'grow' }, h('div', { class: 't', text: it.n }), h('div', { class: 's', text: `${it.c} › ${it.s}` })),
+    h('span', { class: 'amt', text: it.np ? 'price it' : money(it.p) }));
+  const draw = () => {
+    results.replaceChildren();
+    const q = norm(st.q).trim();
+    if (q) {
+      const words = q.split(/\s+/);
+      const hits = S.data.items.filter((it) => { const t = norm(`${it.n} ${it.s} ${it.c}`); return words.every((w) => t.includes(w)); }).slice(0, 60);
+      results.append(h('div', { class: 'crumb', text: `${hits.length}${hits.length === 60 ? '+' : ''} match${hits.length === 1 ? '' : 'es'}` }), ...hits.map(row));
+      return;
+    }
+    if (!st.cat) {
+      const rec = S.prefs.recent.map(itemById).filter(Boolean).slice(0, 8);
+      if (rec.length) results.append(h('div', { class: 'crumb', text: 'Recent' }), ...rec.map(row));
+      const cats = Array.from(new Set(S.data.items.map((i) => i.c))).sort();
+      results.append(h('div', { class: 'crumb', style: 'margin-top:8px', text: 'Browse' }), ...cats.map((c) => h('button', { class: 'item', onclick: () => { st.cat = c; draw(); } },
+        h('div', { class: 'grow' }, h('div', { class: 't', text: c })), h('span', { class: 'pill', text: String(S.data.items.filter((i) => i.c === c).length) }))));
+      return;
+    }
+    results.append(h('button', { class: 'btn slim', onclick: () => { if (st.sub) st.sub = null; else st.cat = null; draw(); } }, `‹ ${st.sub ? st.cat : 'All categories'}`));
+    if (!st.sub) {
+      const subs = Array.from(new Set(S.data.items.filter((i) => i.c === st.cat).map((i) => i.s))).sort();
+      results.append(h('div', { class: 'crumb', text: st.cat }), ...subs.map((s) => h('button', { class: 'item', onclick: () => { st.sub = s; draw(); } },
+        h('div', { class: 'grow' }, h('div', { class: 't', text: s })), h('span', { class: 'pill', text: String(S.data.items.filter((i) => i.c === st.cat && i.s === s).length) }))));
+    } else {
+      results.append(h('div', { class: 'crumb', text: `${st.cat} › ${st.sub}` }), ...S.data.items.filter((i) => i.c === st.cat && i.s === st.sub).map(row));
+    }
+  };
+  app.append(h('div', { class: 'card' },
+    (p.photoIds || []).length ? h('div', { class: 'muted small', text: `${p.photoIds.length} photo${p.photoIds.length === 1 ? '' : 's'} will be attached` }) : null,
+    h('input', { type: 'search', placeholder: 'Search items (tap the mic on the keyboard to speak)', value: st.q, oninput: (e) => { st.q = e.target.value; draw(); } }),
+    results));
+  draw();
+};
+
+async function createLine(it, roomId, photoIds) {
+  const b = S.budget; const pg = b.vendors.find((v) => v.primary) || b.vendors[0];
+  const noSow = b.header.homeType === 'Renovate' && !b.header.sow;
+  const l = { id: uid(), roomId, itemId: it.id, name: it.n, cat: it.c, sub: it.s, qtyType: it.u, entry: it.e,
+    qty: it.e === 'Lump sum' ? 1 : (it.d || 1), price: it.p, catalogPrice: it.p, needsPricing: !!it.np, priceReason: '',
+    slot: pg ? pg.slot : null, scope: noSow ? 'PM-ADD' : 'MRI/SOW', pmAddDesc: '', notesVendor: '', notesCustomer: '', customerEdited: false,
+    photoIds: photoIds.slice(), created: Date.now() };
+  b.lines.push(l);
+  S.prefs.recent = [it.id].concat(S.prefs.recent.filter((x) => x !== it.id)).slice(0, 20); await savePrefs();
+  await saveBudget(); S.pickerState = null;
+  S.screen = 'line'; S.params = { lineId: l.id, isNew: true }; render(); window.scrollTo(0, 0);
+}
+
+// Line editor
+SCREENS.line = (app, p) => {
+  const b = S.budget; const l = b.lines.find((x) => x.id === p.lineId); if (!l) { back(); return; }
+  const r = b.rooms.find((x) => x.id === l.roomId);
+  setTop(r ? roomShort(r) : 'Line', true, true);
+  const express = b.header.homeType === 'Express'; const noSow = b.header.homeType === 'Renovate' && !b.header.sow;
+  const save = async (rerender) => { await saveBudget(); if (rerender) render(); else updateTotal(); };
+  const totalEl = h('span', { class: 'amt', text: money(lineTotal(l)) });
+  const updateTotal = () => { totalEl.textContent = money(lineTotal(l)); $('t-total').textContent = money(budgetTotal(b)); };
+  const priceChanged = !l.needsPricing && Math.abs((l.price || 0) - (l.catalogPrice || 0)) > 0.004;
+
+  // Quantity control by entry type
+  let qtyCtl;
+  if (l.entry === 'Stepper') {
+    const val = h('input', { type: 'text', inputmode: 'decimal', value: l.qty, style: 'text-align:center', onchange: (e) => { l.qty = Math.max(0, parseFloat(e.target.value) || 0); save(true); } });
+    qtyCtl = h('div', { class: 'row', style: 'flex-wrap:nowrap' },
+      h('button', { class: 'btn', style: 'flex:0 0 56px', onclick: () => { l.qty = Math.max(0, (l.qty || 0) - 1); save(true); } }, '−'), val,
+      h('button', { class: 'btn', style: 'flex:0 0 56px', onclick: () => { l.qty = (l.qty || 0) + 1; save(true); } }, '+'));
+  } else if (l.entry === 'Lump sum') {
+    qtyCtl = h('div', { class: 'muted', text: 'Lump sum: quantity 1, enter the full price below.' });
+  } else {
+    qtyCtl = h('input', { type: 'text', inputmode: 'decimal', value: l.qty, onchange: (e) => { l.qty = Math.max(0, parseFloat(e.target.value) || 0); save(true); } });
+  }
+
+  const photos = h('div', { class: 'photos' }, ...l.photoIds.filter((id) => S.photos.has(id)).map((id) => h('button', { class: 'ph', onclick: () => photoSheet(l, id) }, h('img', { src: thumbUrl(id), alt: '' }))));
+  const slotOpts = b.vendors.map((s) => { const v = s.vendorId && vendorById(s.vendorId); return h('option', { value: s.slot, selected: s.slot === l.slot ? true : null }, `${s.primary ? 'Primary GC' : s.service}${v ? ' · ' + v.name : ''}`); });
+
+  app.append(
+    h('div', { class: 'card' },
+      h('div', { class: 'crumb', text: `${l.cat} › ${l.sub}` }),
+      h('div', { class: 't', style: 'font-weight:600;font-size:1.05rem', text: l.name }),
+      h('div', { class: 'row' }, h('span', { class: 'muted small', text: 'Line total' }), totalEl)),
+    h('div', { class: 'card' },
+      h('h2', { text: `Photos (${l.photoIds.length})` }), photos,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn' + (b.header.photoMode === 'live' ? ' primary' : ''), onclick: () => openCamera(async (ids) => { l.photoIds.push(...ids); await save(true); }) }, 'Camera'),
+        h('button', { class: 'btn' + (b.header.photoMode === 'roll' ? ' primary' : ''), onclick: () => pickFromLibrary(async (ids) => { l.photoIds.push(...ids); await save(true); }) }, 'Camera roll'),
+        h('button', { class: 'btn', onclick: () => samePhotoSheet(l) }, 'From this walk'))),
+    h('div', { class: 'card' },
+      h('div', { class: 'row' },
+        h('label', { class: 'field' }, h('span', { text: 'Quantity' }), qtyCtl),
+        h('label', { class: 'field' }, h('span', { text: 'Quantity type' }), h('select', { onchange: (e) => { l.qtyType = e.target.value; save(true); } }, ...QTY_TYPES.map((t) => h('option', { value: t, selected: t === l.qtyType ? true : null }, t))))),
+      h('label', { class: 'field' }, h('span', { text: l.needsPricing ? 'Price (needs pricing: enter it)' : `Price per unit (list ${money(l.catalogPrice)})` }),
+        h('input', { type: 'text', inputmode: 'decimal', value: l.price, onchange: (e) => { l.price = Math.max(0, parseFloat(String(e.target.value).replace(/[$,]/g, '')) || 0); save(true); } })),
+      priceChanged ? h('label', { class: 'field' }, h('span', { text: 'Reason for the price change (required)' }),
+        h('input', { type: 'text', value: l.priceReason, placeholder: 'e.g., larger unit, vendor quote', onchange: (e) => { l.priceReason = e.target.value.trim(); save(true); } }),
+        l.priceReason ? null : h('div', { class: 'note warn small', text: 'Goes on the price exceptions report to the RD.' })) : null,
+      h('label', { class: 'field' }, h('span', { text: 'Vendor' }), h('select', { onchange: (e) => { l.slot = e.target.value; save(); } }, ...slotOpts)),
+      noSow ? h('div', { class: 'muted small', text: 'Renovate with no client SOW: every line is PM-ADD.' }) :
+        h('div', { class: 'field' }, h('span', { text: 'MRI/SOW or PM-ADD' }),
+          h('div', { class: 'seg' }, ...['MRI/SOW', 'PM-ADD'].map((v) => h('button', { class: l.scope === v ? 'on' : '', onclick: () => { l.scope = v; save(true); } }, v)))),
+      !noSow && l.scope === 'PM-ADD' ? h('label', { class: 'field' }, h('span', { text: 'Why it\'s added (optional)' }), h('input', { type: 'text', value: l.pmAddDesc, onchange: (e) => { l.pmAddDesc = e.target.value.trim(); save(); } })) : null),
+    h('div', { class: 'card' },
+      h('label', { class: 'field' }, h('span', { text: 'Instructions to vendor' }),
+        h('textarea', { value: l.notesVendor, oninput: (e) => { l.notesVendor = e.target.value; if (!l.customerEdited && !express) { l.notesCustomer = l.notesVendor; const c = $('cust'); if (c) c.value = l.notesCustomer; } }, onchange: () => save() })),
+      express ? h('div', { class: 'muted small', text: 'Express home: no customer notes.' }) :
+        h('label', { class: 'field' }, h('span', { text: l.customerEdited ? 'Notes to customer (edited, no longer copies)' : 'Notes to customer (copies vendor notes until you edit it)' }),
+          h('textarea', { id: 'cust', value: l.notesCustomer, oninput: (e) => { l.notesCustomer = e.target.value; l.customerEdited = true; }, onchange: () => save(true) }))),
+    h('button', { class: 'btn danger wide', onclick: () => openSheet(h('h2', { text: 'Delete this line?' }), h('div', { class: 'muted', text: `${l.name}. Its photos stay in the walk for other lines.` }),
+      h('div', { class: 'row' }, h('button', { class: 'btn', onclick: closeSheet }, 'Keep it'), h('button', { class: 'btn danger', onclick: async () => { b.lines = b.lines.filter((x) => x !== l); await saveBudget(); closeSheet(); back(); } }, 'Delete line'))) }, 'Delete line'));
+  setFab(h('button', { class: 'btn primary', onclick: () => {
+    if (priceChanged && !l.priceReason) { alertNote('Add a reason for the price change first.'); return; }
+    back();
+  } }, 'Done'));
+};
+
+function photoSheet(l, id) {
+  openSheet(h('img', { src: thumbUrl(id), alt: '', style: 'width:100%;max-height:40vh;object-fit:contain;border-radius:10px' }),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', onclick: () => { closeSheet(); viewPhoto(id); } }, 'View full size'),
+      h('button', { class: 'btn danger', onclick: async () => { l.photoIds = l.photoIds.filter((x) => x !== id); await saveBudget(); closeSheet(); render(); } }, 'Remove from line')),
+    h('div', { class: 'muted small', text: 'Removing only detaches it from this line; the photo stays in the walk.' }));
+}
+function samePhotoSheet(l) {
+  const all = Array.from(S.photos.values()).sort((a, c) => (c.roomId === l.roomId) - (a.roomId === l.roomId) || c.createdAt - a.createdAt);
+  const draw = () => openSheet(h('h2', { text: 'Use photos from this walk' }),
+    all.length ? h('div', { class: 'photos' }, ...all.map((p) => h('button', { class: 'ph' + (l.photoIds.includes(p.id) ? ' on' : ''), onclick: async () => {
+      l.photoIds = l.photoIds.includes(p.id) ? l.photoIds.filter((x) => x !== p.id) : l.photoIds.concat(p.id); await saveBudget(); draw(); } }, h('img', { src: thumbUrl(p.id), alt: '' })))) :
+      h('p', { class: 'muted', text: 'No photos in this walk yet.' }),
+    h('button', { class: 'btn primary wide', onclick: () => { closeSheet(); render(); } }, 'Done'));
+  draw();
+}
+function viewPhoto(id) {
+  const p = S.photos.get(id); if (!p) return;
+  const u = URL.createObjectURL(p.blob); $('viewer-img').src = u; $('viewer-info').textContent = `${p.w}×${p.h} · ${Math.round(p.bytes / 1024)} KB`;
+  $('viewer').hidden = false; $('viewer-close').onclick = () => { $('viewer').hidden = true; URL.revokeObjectURL(u); };
+}
+
+// ---------- Photos: capture and save ----------
+const toBlob = (c, q) => new Promise((res) => c.toBlob((x) => res(x), 'image/jpeg', q));
+async function jpeg(src, edge, q, w0, h0) {
+  w0 = w0 || src.width; h0 = h0 || src.height;
+  const s = Math.min(1, edge / Math.max(w0, h0)); const w = Math.round(w0 * s), hh = Math.round(h0 * s);
+  const c = document.createElement('canvas'); c.width = w; c.height = hh; c.getContext('2d').drawImage(src, 0, 0, w, hh);
+  const b = await toBlob(c, q); c.width = 0; c.height = 0; return { blob: b, w, h: hh };
+}
+async function storePhoto(src, w0, h0, origin) {
+  const full = await jpeg(src, MAX_EDGE, QUALITY, w0, h0); const th = await jpeg(src, THUMB, 0.7, w0, h0);
+  if (!full.blob) throw new Error('encode');
+  const roomId = S.params && (S.params.roomId || (S.params.lineId && (S.budget.lines.find((l) => l.id === S.params.lineId) || {}).roomId));
+  const p = { id: uid(), budgetId: S.budget.id, roomId: roomId || null, blob: full.blob, thumb: th.blob, w: full.w, h: full.h, bytes: full.blob.size, origin, createdAt: Date.now() };
+  await put('photos', p); S.photos.set(p.id, p); return p;
+}
+let camStream = null, camCb = null, camIds = [];
+async function openCamera(cb) {
+  camCb = cb; camIds = []; $('cam-count').textContent = '0 taken'; $('cam-thumb').removeAttribute('src'); $('cam').hidden = false;
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 4032 }, height: { ideal: 3024 } } });
+    const v = $('cam-video'); v.srcObject = camStream; await v.play().catch(() => {});
+    await new Promise((r) => (v.videoWidth ? r() : v.addEventListener('loadedmetadata', r, { once: true })));
+    $('cam-info').textContent = `${v.videoWidth}×${v.videoHeight}`;
+  } catch (e) { closeCamera(); alertNote(`Camera didn't start (${e && e.name ? e.name : 'error'}). Allow camera access, or use Camera roll.`); }
+}
+$('cam-shutter').onclick = async () => {
+  const v = $('cam-video'); if (!v.videoWidth) return;
+  const f = $('cam-flash'); f.style.opacity = '0.8'; setTimeout(() => { f.style.opacity = '0'; }, 120);
+  try { const p = await storePhoto(v, v.videoWidth, v.videoHeight, 'camera'); camIds.push(p.id); $('cam-count').textContent = `${camIds.length} taken`; $('cam-thumb').src = thumbUrl(p.id); }
+  catch (e) { $('cam-info').textContent = e && e.name === 'QuotaExceededError' ? 'Phone storage full' : 'Could not save that photo'; }
+};
+function closeCamera() {
+  if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; }
+  $('cam-video').srcObject = null; $('cam').hidden = true;
+  const cb = camCb, ids = camIds; camCb = null; camIds = []; if (cb) cb(ids);
+}
+$('cam-done').onclick = closeCamera;
+document.addEventListener('visibilitychange', () => { if (document.hidden && camStream) closeCamera(); });
+
+let libCb = null;
+function pickFromLibrary(cb) { libCb = cb; $('i-lib').click(); }
+$('i-lib').onchange = async (e) => {
+  const files = Array.from(e.target.files || []); e.target.value = ''; const cb = libCb; libCb = null; if (!files.length || !cb) return;
+  const ids = []; let bad = 0;
+  openSheet(h('div', { class: 'note', id: 'lib-prog', text: `Saving 0 of ${files.length}…` }));
+  for (const f of files) {
+    try {
+      let src; try { src = await createImageBitmap(f, { imageOrientation: 'from-image' }); }
+      catch (x) { src = await new Promise((res, rej) => { const u = URL.createObjectURL(f); const i = new Image(); i.onload = () => { URL.revokeObjectURL(u); res(i); }; i.onerror = () => rej(new Error('unreadable')); i.src = u; }); }
+      const p = await storePhoto(src, 0, 0, 'library'); if (src.close) src.close(); ids.push(p.id);
+    } catch (x) { bad++; }
+    const el = $('lib-prog'); if (el) el.textContent = `Saving ${ids.length + bad} of ${files.length}…`;
+  }
+  closeSheet(); await cb(ids);
+  if (bad) alertNote(`${bad} photo${bad === 1 ? '' : 's'} couldn't be read.`);
+};
+
+// ---------- Test summary ----------
+async function copySummary() {
+  const bs = await getAll('budgets'); const ps = await getAll('photos');
+  const lines = bs.reduce((a, b) => a + b.lines.length, 0);
+  const txt = [
+    `FIRST MATE ${VERSION} TEST SUMMARY`, `Saved: ${new Date().toISOString()}`,
+    `Data: ${S.data.label} v${S.data.version} (${S.data.items.length} items)`,
+    `Walks: ${bs.length} · rooms ${bs.reduce((a, b) => a + b.rooms.length, 0)} · lines ${lines} · photos ${ps.length} (${(ps.reduce((a, p) => a + p.bytes, 0) / 1048576).toFixed(1)} MB)`,
+    `Home screen: ${window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true ? 'yes' : 'no'}`,
+    ...bs.map((b) => `- ${b.header.address || '(no address)'} · ${b.header.homeType} · ${b.rooms.length} rooms · ${b.lines.length} lines · ${money(budgetTotal(b))} · price changes ${b.lines.filter((l) => !l.needsPricing && Math.abs(l.price - l.catalogPrice) > 0.004).length} · PM-ADD ${b.lines.filter((l) => l.scope === 'PM-ADD').length} · lines without photos ${b.lines.filter((l) => !l.photoIds.length).length}`),
+    `Browser: ${navigator.userAgent}`].join('\n');
+  try { await navigator.clipboard.writeText(txt); alertNote('Copied. Paste it into your chat with Claude.'); }
+  catch (e) { openSheet(h('div', { class: 'muted small', text: 'Select all and copy:' }), h('textarea', { value: txt, style: 'min-height:200px;font-family:var(--mono);font-size:12px' }), h('button', { class: 'btn wide', onclick: closeSheet }, 'Close')); }
+}
+
+// ---------- Boot ----------
+(async () => {
+  if ('serviceWorker' in navigator) { try { await navigator.serviceWorker.register('sw.js'); } catch (e) { /* offline launch unavailable */ } }
+  try {
+    idb = await openDb();
+    S.data = await kvGet('data', null);
+    S.prefs = Object.assign(S.prefs, await kvGet('prefs', {}));
+  } catch (e) {
+    $('app').replaceChildren(h('div', { class: 'note bad', text: 'This browser blocked on-device storage (private browsing?). First Mate can\'t save walks here.' })); return;
+  }
+  go(S.data ? 'home' : 'data', {}, true);
+})();
+})();
+</script>
+</body>
+</html>
