@@ -58,7 +58,8 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
 .seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .seg button { flex: 1; min-height: 46px; border: 0; background: var(--panel); font-weight: 600; border-right: 1px solid var(--line); }
 .seg button:last-child { border-right: 0; }
-.seg button.on { background: var(--nav); color: var(--nav-ink); }
+.seg button.on { background: var(--fg); color: var(--bg); }
+.need { border: 2px solid var(--accent) !important; background: var(--sel) !important; }
 .list { display: flex; flex-direction: column; }
 .item { display: flex; gap: 10px; align-items: center; padding: 12px 2px; border-bottom: 1px solid var(--line); background: none; border-left: 0; border-right: 0; border-top: 0; text-align: left; width: 100%; min-height: 56px; }
 .item:last-child { border-bottom: 0; }
@@ -585,9 +586,9 @@ SCREENS.line = (app, p) => {
         h('label', { class: 'field' }, h('span', { text: 'Quantity type' }), h('select', { onchange: (e) => { l.qtyType = e.target.value; save(true); } }, ...QTY_TYPES.map((t) => h('option', { value: t, selected: t === l.qtyType ? true : null }, t))))),
       h('label', { class: 'field' }, h('span', { text: l.needsPricing ? 'Price (needs pricing: enter it)' : `Price per unit (list ${money(l.catalogPrice)})` }),
         h('input', { type: 'text', inputmode: 'decimal', value: l.price, onchange: (e) => { l.price = Math.max(0, parseFloat(String(e.target.value).replace(/[$,]/g, '')) || 0); save(true); } })),
-      priceChanged ? h('label', { class: 'field' }, h('span', { text: 'Reason for the price change (required)' }),
-        h('input', { type: 'text', value: l.priceReason, placeholder: 'e.g., larger unit, vendor quote', onchange: (e) => { l.priceReason = e.target.value.trim(); save(true); } }),
-        l.priceReason ? null : h('div', { class: 'note warn small', text: 'Goes on the price exceptions report to the RD.' })) : null,
+      priceChanged ? h('div', { class: 'field' },
+        h('div', { class: 'note warn small', text: `Price changed from the list price (${money(l.catalogPrice)}). A reason is required; it goes on the exceptions report to the RD.` }),
+        h('input', { type: 'text', class: l.priceReason ? '' : 'need', 'aria-label': 'Reason for the price change', value: l.priceReason, placeholder: 'Type the reason here (e.g., larger unit, vendor quote)', onchange: (e) => { l.priceReason = e.target.value.trim(); save(true); } })) : null,
       h('label', { class: 'field' }, h('span', { text: 'Vendor' }), h('select', { onchange: (e) => { l.slot = e.target.value; save(); } }, ...slotOpts)),
       noSow ? h('div', { class: 'muted small', text: 'Renovate with no client SOW: every line is PM-ADD.' }) :
         h('div', { class: 'field' }, h('span', { text: 'MRI/SOW or PM-ADD' }),
