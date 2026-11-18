@@ -511,7 +511,7 @@ SCREENS.room = (app, p) => {
     list.append(h('button', { class: 'item', onclick: () => go('line', { lineId: l.id }) },
       first && S.photos.has(first) ? h('img', { class: 'thumb', src: thumbUrl(first), alt: '' }) : h('span', { class: 'thumb empty', text: 'no photo' }),
       h('div', { class: 'grow' }, h('div', { class: 't', text: l.name }),
-        l.copied && !l.photoIds.length ? h('span', { class: 'pill warn', text: 'copied: add photo to review' }) : null,
+        !l.photoIds.length ? h('span', { class: 'pill warn', text: l.copied ? 'copied: add photo to review' : 'needs a photo' }) : null,
         h('div', { class: 's', text: `${l.qty} ${UNIT_SHORT[l.qtyType] || ''} · ${l.photoIds.length} photo${l.photoIds.length === 1 ? '' : 's'}${b.header.homeType === 'Express' || b.header.sow ? (l.scope ? ' · ' + l.scope : ' · MRI/SOW or PM-ADD?') : ''}` })),
       h('span', { class: 'amt', text: money(lineTotal(l)) })));
   }
@@ -558,6 +558,7 @@ function allPhotosSheet() {
   const b = S.budget; const a = assignedIds(b); const all = Array.from(S.photos.values()).sort((x, y) => x.createdAt - y.createdAt);
   const groups = b.rooms.map((r) => ({ name: roomShort(r), ps: all.filter((x) => x.roomId === r.id) })).filter((g) => g.ps.length);
   const loose = all.filter((x) => !x.roomId || !b.rooms.some((r) => r.id === x.roomId)); if (loose.length) groups.push({ name: 'No room', ps: loose });
+  if (!all.length) { closeSheet(); render(); return; }
   const back = () => allPhotosSheet();
   openSheet(h('h2', { text: `All photos (${all.length})` }),
     h('div', { class: 'muted small', text: 'Grouped by room. Photos marked "line" are on a line. Tap one to view it or attach it to a line in its room.' }),
@@ -566,6 +567,22 @@ function allPhotosSheet() {
       h('div', { class: 'photos' }, ...g.ps.map((x) => h('button', { class: 'ph', onclick: () => trayPhotoSheet(x.id, back) }, h('img', { src: thumbUrl(x.id), alt: '' }), a.has(x.id) ? h('span', { class: 'x', text: 'line' }) : null))))),
     ...(all.length ? [] : [h('p', { class: 'muted', text: 'No photos yet.' })]),
     h('button', { class: 'btn wide', onclick: () => { closeSheet(); render(); } }, 'Close'));
+}
+function deletePhotoSheet(pid, done, cancel) {
+  const b = S.budget; const ph = S.photos.get(pid); if (!ph) return;
+  const room = b.rooms.find((x) => x.id === ph.roomId);
+  const on = b.lines.filter((l) => l.photoIds.includes(pid));
+  const orphan = on.filter((l) => l.photoIds.length === 1);
+  openSheet(h('h2', { text: 'Delete this photo from the walk?' }),
+    h('img', { src: thumbUrl(pid), alt: '', style: 'width:96px;height:96px;object-fit:cover;border-radius:8px' }),
+    h('div', { class: 'muted', text: `It is removed from ${room ? roomShort(room) : 'this walk'} on this phone and can't be recovered.` }),
+    on.length ? h('div', { class: 'note' }, h('div', { text: `It also comes off ${pl(on.length, 'line')}:` }),
+      ...on.map((l) => h('div', { class: 'small', text: `• ${l.name}` }))) : h('div', { class: 'muted small', text: 'It isn\'t on any line.' }),
+    orphan.length ? h('div', { class: 'note warn', text: `${pl(orphan.length, 'line')} will have no photo and will be flagged as needing a new one.` }) : null,
+    h('div', { class: 'row' }, h('button', { class: 'btn', onclick: cancel }, 'Keep it'),
+      h('button', { class: 'btn danger', onclick: async () => {
+        b.lines.forEach((l) => { if (l.photoIds.includes(pid)) l.photoIds = l.photoIds.filter((x) => x !== pid); });
+        await del('photos', pid); S.photos.delete(pid); b.photoCount = Math.max(0, (b.photoCount || 1) - 1); await saveBudget(); done(); } }, 'Delete photo')));
 }
 function trayPhotoSheet(pid, back) {
   const b = S.budget; const ph = S.photos.get(pid); if (!ph) return;
@@ -577,10 +594,7 @@ function trayPhotoSheet(pid, back) {
     h('div', { class: 'muted small', text: `${room ? roomShort(room) : 'No room'}${onLines.length ? ' · on ' + onLines.map((l) => l.name).join(', ') : ' · not on a line'}` }),
     h('div', { class: 'row' },
       h('button', { class: 'btn', onclick: () => { closeSheet(); viewPhoto(pid); } }, 'View full size'),
-      onLines.length ? null : h('button', { class: 'btn danger', onclick: () => openSheet(h('h2', { text: 'Delete this photo?' }),
-        h('div', { class: 'muted', text: `It is removed from ${room ? roomShort(room) : 'this walk'} on this phone and can't be recovered. It isn't on any line.` }),
-        h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => trayPhotoSheet(pid, back) }, 'Keep it'),
-          h('button', { class: 'btn danger', onclick: async () => { await del('photos', pid); S.photos.delete(pid); b.photoCount = Math.max(0, (b.photoCount || 1) - 1); await saveBudget(); back(); } }, 'Delete photo'))) }, 'Delete')),
+      h('button', { class: 'btn danger', onclick: () => deletePhotoSheet(pid, back, () => trayPhotoSheet(pid, back)) }, 'Delete')),
     b.mode === 'photos' ? null : lines.length ? h('div', { class: 'field' }, h('span', { text: room ? `Attach to a line in ${roomShort(room)}` : 'Attach to a line' }),
       h('div', { class: 'list' }, ...lines.map((l) => { const on = l.photoIds.includes(pid);
         return h('button', { class: 'item', disabled: on, onclick: async () => { if (on) return; l.photoIds.push(pid); await saveBudget(); back(); } },
@@ -773,8 +787,9 @@ function photoSheet(l, id) {
   openSheet(h('img', { src: thumbUrl(id), alt: '', style: 'width:100%;max-height:40vh;object-fit:contain;border-radius:10px' }),
     h('div', { class: 'row' },
       h('button', { class: 'btn', onclick: () => { closeSheet(); viewPhoto(id); } }, 'View full size'),
-      h('button', { class: 'btn danger', onclick: async () => { l.photoIds = l.photoIds.filter((x) => x !== id); await saveBudget(); closeSheet(); render(); } }, 'Remove from line')),
-    h('div', { class: 'muted small', text: 'Removing only detaches it from this line; the photo stays in the walk.' }));
+      h('button', { class: 'btn', onclick: async () => { l.photoIds = l.photoIds.filter((x) => x !== id); await saveBudget(); closeSheet(); render(); } }, 'Remove from line')),
+    h('div', { class: 'muted small', text: 'Remove from line only detaches it from this line; the photo stays in the walk. Delete removes it from the walk and every line it is on.' }),
+    h('button', { class: 'btn danger wide', onclick: () => deletePhotoSheet(id, () => { closeSheet(); render(); }, () => photoSheet(l, id)) }, 'Delete from walk'));
 }
 function samePhotoSheet(l) {
   const all = Array.from(S.photos.values()).sort((a, c) => (c.roomId === l.roomId) - (a.roomId === l.roomId) || c.createdAt - a.createdAt);

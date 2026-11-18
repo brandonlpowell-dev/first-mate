@@ -1,6 +1,6 @@
 // Keeps the test page working with no signal once it has been opened online.
 // Cache first (instant start in a dead zone), then refresh the copy in the background.
-const CACHE = 'first-mate-v2i2d';
+const CACHE = 'first-mate-v2i2e';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-180.png'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
