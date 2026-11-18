@@ -60,6 +60,9 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
 .seg button:last-child { border-right: 0; }
 .seg button.on { background: var(--fg); color: var(--bg); }
 .need { border: 2px solid var(--accent) !important; background: var(--sel) !important; }
+.mrow { padding: 8px; margin: 2px 0; border-radius: 10px; border: 2px solid transparent; }
+.mrow.on { border-color: var(--accent); background: var(--sel); }
+.mrow.on input { border-color: var(--accent); }
 .list { display: flex; flex-direction: column; }
 .item { display: flex; gap: 10px; align-items: center; padding: 12px 2px; border-bottom: 1px solid var(--line); background: none; border-left: 0; border-right: 0; border-top: 0; text-align: left; width: 100%; min-height: 56px; }
 .item:last-child { border-bottom: 0; }
@@ -198,7 +201,7 @@ function thumbUrl(pid) {
 
 const assignedIds = (b) => new Set(b.lines.flatMap((l) => l.photoIds));
 const unassigned = (b, roomId) => { const a = assignedIds(b); return Array.from(S.photos.values()).filter((p) => !a.has(p.id) && (!roomId || p.roomId === roomId)).sort((x, y) => x.createdAt - y.createdAt); };
-const isFlooring = (l) => /flooring|carpet|vinyl|tile|lvp|laminate/i.test(`${l.cat} ${l.sub} ${l.name}`);
+const isFlooring = (l) => !/remov|haul|demo|refinish/i.test(`${l.sub} ${l.name}`) && /flooring|carpet|vinyl|tile|lvp|laminate/i.test(`${l.cat} ${l.sub} ${l.name}`);
 // Accepts 12, 12.5, 12'6, 12'6", 12 6 (feet then inches).
 function parseFt(s) {
   const t = String(s || '').trim().replace(/[’′]/g, "'").replace(/[”″]/g, '"');
@@ -705,7 +708,8 @@ SCREENS.line = (app, p) => {
 };
 
 function measureSheet(l) {
-  const st = { areas: l.measure ? l.measure.areas.map((a) => Object.assign({}, a)) : [], waste: l.measure ? l.measure.waste : (l.waste != null ? l.waste : (isFlooring(l) ? 10 : 0)), toNotes: false };
+  const st = { areas: l.measure ? l.measure.areas.map((a) => Object.assign({}, a)) : [], waste: l.measure ? l.measure.waste : (l.waste != null ? l.waste : (isFlooring(l) ? 10 : 0)), toNotes: /^Measurements: /m.test(l.notesVendor || ''), active: -1 };
+  const MRE = /^Measurements: .*$/m;
   if (!st.areas.length || st.areas[st.areas.length - 1].w || st.areas[st.areas.length - 1].l) st.areas.push({ name: '', w: '', l: '' });
   const names = S.budget.rooms.map(roomShort);
   const calc = () => {
@@ -721,8 +725,9 @@ function measureSheet(l) {
       `${Math.round(c.sf).toLocaleString()} sq ft measured + ${parseFloat(st.waste) || 0}% waste = ${c.qty.toLocaleString()} ${l.qtyType === 'Sqr Yards' ? 'sq yd' : 'sq ft'}`; };
   const rows = h('div', { class: 'list' });
   const drawRows = () => {
-    rows.replaceChildren(...st.areas.map((a, i) => h('div', { class: 'row', style: 'padding:6px 0;border-bottom:1px solid var(--line)' },
-      h('input', { type: 'text', placeholder: 'Area (e.g., Primary)', value: a.name, list: 'fm-rooms', style: 'flex:1 1 100%', oninput: (e) => { a.name = e.target.value; } }),
+    const act = st.active >= 0 && st.active < st.areas.length ? st.active : st.areas.length - 1;
+    rows.replaceChildren(...st.areas.map((a, i) => h('div', { class: 'row mrow' + (i === act ? ' on' : ''), onfocusin: (e) => { st.active = i; rows.querySelectorAll('.mrow').forEach((r, j) => r.classList.toggle('on', j === i)); } },
+      h('input', { type: 'text', placeholder: 'Enter room description', value: a.name, list: 'fm-rooms', style: 'flex:1 1 100%', oninput: (e) => { a.name = e.target.value; } }),
       h('input', { type: 'text', inputmode: 'decimal', placeholder: "Width (12'6)", value: a.w, oninput: (e) => { a.w = e.target.value; grow(i); showTotal(); } }),
       h('input', { type: 'text', inputmode: 'decimal', placeholder: "Length (14)", value: a.l, oninput: (e) => { a.l = e.target.value; grow(i); showTotal(); } }))));
   };
@@ -733,17 +738,17 @@ function measureSheet(l) {
     rows,
     h('label', { class: 'field' }, h('span', { text: 'Waste factor % (this line only)' }), h('input', { type: 'text', inputmode: 'decimal', value: st.waste, oninput: (e) => { st.waste = e.target.value; showTotal(); } })),
     out,
-    h('label', { class: 'row', style: 'gap:10px' }, h('input', { type: 'checkbox', style: 'flex:0 0 auto;width:22px;height:22px', onchange: (e) => { st.toNotes = e.target.checked; } }), h('span', { text: 'Add the measurements to the vendor instructions' })),
+    h('label', { class: 'row', style: 'gap:10px' }, h('input', { type: 'checkbox', checked: st.toNotes, style: 'flex:0 0 auto;width:22px;height:22px', onchange: (e) => { st.toNotes = e.target.checked; } }), h('span', { text: 'Add the measurements to the vendor instructions' })),
     h('div', { class: 'row' },
       h('button', { class: 'btn', onclick: closeSheet }, 'Cancel'),
       h('button', { class: 'btn primary', onclick: async () => {
         const c = calc(); if (c.bad) return;
         const areas = st.areas.filter((a) => a.w && a.l);
         l.measure = { areas, waste: parseFloat(st.waste) || 0, sqft: Math.round(c.sf) }; l.waste = l.measure.waste; l.qty = c.qty; l.prefill = null;
-        if (st.toNotes && areas.length) {
-          const txt = 'Measurements: ' + areas.map((a) => `${a.name || 'Area'} ${a.w} x ${a.l}`).join('; ') + `. ${Math.round(c.sf)} sq ft + ${l.waste}% waste.`;
-          l.notesVendor = (l.notesVendor ? l.notesVendor + '\n' : '') + txt; if (!l.customerEdited) l.notesCustomer = l.notesVendor;
-        }
+        const txt = st.toNotes && areas.length ? 'Measurements: ' + areas.map((a) => `${a.name || 'Room'} ${a.w} x ${a.l}`).join('; ') + `. ${Math.round(c.sf)} sq ft + ${l.waste}% waste.` : '';
+        const swap = (s) => { s = s || ''; if (MRE.test(s)) return s.replace(MRE, txt).replace(/\n{2,}/g, '\n').trim(); return txt ? (s ? s + '\n' : '') + txt : s; };
+        l.notesVendor = swap(l.notesVendor);
+        if (!l.customerEdited) l.notesCustomer = l.notesVendor; else if (MRE.test(l.notesCustomer || '')) l.notesCustomer = swap(l.notesCustomer);
         await saveBudget(); closeSheet(); render(); } }, 'Use this quantity')));
 }
 function photoSheet(l, id) {
