@@ -130,7 +130,7 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
 <script>
 (() => {
 'use strict';
-const VERSION = 'V2I2';
+const VERSION = 'V2I3';
 const MAX_EDGE = 3000, QUALITY = 0.85, THUMB = 240;
 const QTY_TYPES = ['Num of Units', 'Linear Ft', 'Sqft', 'Sqr Yards'];
 const UNIT_SHORT = { 'Num of Units': 'ea', 'Linear Ft': 'LF', 'Sqft': 'SF', 'Sqr Yards': 'SY' };
@@ -234,7 +234,7 @@ function setTop(title, showBack, showTotal) {
   $('t-title').textContent = title; $('t-back').hidden = !showBack;
   $('t-total').textContent = showTotal && S.budget ? money(budgetTotal(S.budget)) : '';
 }
-function setFab(...buttons) { const f = $('fab'); f.replaceChildren(...buttons); f.hidden = !buttons.length; }
+function setFab(...buttons) { buttons = buttons.filter(Boolean); const f = $('fab'); f.replaceChildren(...buttons); f.hidden = !buttons.length; }
 function openSheet(...kids) { $('sheet').replaceChildren(...kids.filter((k) => k != null && k !== false)); $('modal').hidden = false; }
 function closeSheet() { $('modal').hidden = true; $('sheet').replaceChildren(); }
 $('modal').addEventListener('click', (e) => { if (e.target === $('modal')) closeSheet(); });
@@ -283,7 +283,7 @@ SCREENS.home = async (app) => {
       h('div', { class: 'grow' },
         h('div', { class: 't', text: b.header.address || '(no address yet)' }),
         h('div', { class: 's', text: `${b.header.propertyCode || 'no property code'} · ${pl(b.rooms.length, 'room')} · ${pl(b.lines.length, 'line')} · ${pl(ph, 'photo')}` }),
-        h('div', { class: 's', text: `${b.mode === 'photos' ? 'Photos only' : 'Draft'} · updated ${new Date(b.updated).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` })),
+        h('div', { class: 's', text: `${b.status === 'Submitted' ? 'Submitted' : b.mode === 'photos' ? 'Photos only' : 'Draft'} · updated ${new Date(b.updated).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` })),
       h('span', { class: 'amt', text: money(budgetTotal(b)) })));
   }
   app.append(
@@ -335,6 +335,10 @@ SCREENS.budget = (app) => {
   }
   const h0 = b.header; const m = market(h0.market);
   const missing = [!h0.address && 'address', !h0.propertyCode && 'property code'].filter(Boolean);
+  const sub = b.status === 'Submitted';
+  if (sub) app.append(h('div', { class: 'note ok' },
+    h('div', { text: `Submitted ${new Date(b.submitted).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}. Upload to RC comes in a later milestone; until then it stays on this phone.` }),
+    h('button', { class: 'btn wide', style: 'margin-top:8px', onclick: async () => { b.status = 'Draft'; b.submitted = null; await saveBudget(); render(); } }, 'Reopen to edit')));
   app.append(
     h('div', { class: 'card' },
       h('div', { class: 'row' },
@@ -353,8 +357,11 @@ SCREENS.budget = (app) => {
     h('div', { class: 'card' }, h('h2', { text: 'Rooms' }), rooms,
       h('div', { class: 'row' },
         h('button', { class: 'btn', onclick: addRoomSheet }, 'Add room'),
-        (h0.beds || h0.baths) && !b.rooms.some((r) => r.type === 'Bedroom' || r.type === 'Bathroom') ? h('button', { class: 'btn', onclick: quickSetup }, `Quick setup ${h0.beds || 0}/${h0.baths || 0}`) : null)));
-  setFab(h('button', { class: 'btn', onclick: () => go('home', {}, true) }, 'Back to walks'));
+        (h0.beds || h0.baths) && !b.rooms.some((r) => r.type === 'Bedroom' || r.type === 'Bathroom') ? h('button', { class: 'btn', onclick: quickSetup }, `Quick setup ${h0.beds || 0}/${h0.baths || 0}`) : null)),
+    h('button', { class: 'btn danger wide', style: 'margin-top:4px', onclick: deleteWalkSheet }, 'Delete walk'));
+  if (sub) { app.querySelectorAll('.card button, .card .item, button.card').forEach((x) => { if (!x.closest('.note')) x.disabled = true; }); }
+  setFab(h('button', { class: 'btn', onclick: () => go('home', {}, true) }, 'Back to walks'),
+    b.mode === 'photos' || sub ? null : h('button', { class: 'btn primary', onclick: () => go('review', {}) }, 'Review & submit'));
 };
 
 SCREENS.header = (app, p) => {
@@ -497,7 +504,9 @@ SCREENS.room = (app, p) => {
     const rp = Array.from(S.photos.values()).filter((x) => x.roomId === r.id).sort((x, y) => x.createdAt - y.createdAt);
     app.append(h('div', { class: 'card' },
       h('div', { class: 'row' }, h('div', { class: 'muted small', text: `${pl(rp.length, 'photo')} in this room` }),
-        h('button', { class: 'btn slim', style: 'flex:0 0 auto', onclick: () => editRoomSheet(r) }, 'Rename')),
+        h('div', { style: 'display:flex;gap:8px;flex:0 0 auto' },
+          h('button', { class: 'btn slim', style: 'width:auto;padding:0 14px', onclick: () => editRoomSheet(r) }, 'Rename'),
+          h('button', { class: 'btn slim danger', style: 'width:auto;padding:0 14px', onclick: () => deleteRoomSheet(r) }, 'Delete'))),
       rp.length ? h('div', { class: 'photos' }, ...rp.map((x) => h('button', { class: 'ph', onclick: () => trayPhotoSheet(x.id, () => { closeSheet(); render(); }) }, h('img', { src: thumbUrl(x.id), alt: '' })))) :
         h('p', { class: 'muted', text: 'No photos yet. Tap Camera to shoot this room.' })));
     setFab(h('button', { class: 'btn primary', onclick: () => openCamera(() => render()) }, 'Camera'),
@@ -520,7 +529,8 @@ SCREENS.room = (app, p) => {
     h('div', { class: 'row' }, h('div', { class: 'muted small', text: `${pl(ls.length, 'line')} · ${money(ls.reduce((a, l) => a + lineTotal(l), 0))}` }),
       h('div', { style: 'display:flex;gap:8px;flex:0 0 auto' },
         h('button', { class: 'btn slim', style: 'width:auto;padding:0 14px', onclick: () => duplicateRoomSheet(r) }, 'Duplicate'),
-        h('button', { class: 'btn slim', style: 'width:auto;padding:0 14px', onclick: () => editRoomSheet(r) }, 'Rename'))),
+        h('button', { class: 'btn slim', style: 'width:auto;padding:0 14px', onclick: () => editRoomSheet(r) }, 'Rename'),
+        h('button', { class: 'btn slim danger', style: 'width:auto;padding:0 14px', onclick: () => deleteRoomSheet(r) }, 'Delete'))),
     ru.length ? h('button', { class: 'btn slim', style: 'width:100%;margin:6px 0', onclick: () => traySheet(r.id) }, `${pl(ru.length, 'photo')} not on a line: view or attach`) : null,
     list));
   const live = b.header.photoMode === 'live';
@@ -528,6 +538,97 @@ SCREENS.room = (app, p) => {
   const addBtn = h('button', { class: 'btn' + (live ? '' : ' primary'), onclick: () => go('picker', { roomId: r.id, photoIds: [] }) }, 'Add item');
   setFab(...(live ? [camBtn, addBtn] : [addBtn, camBtn]));
 };
+function deleteWalkSheet() {
+  const b = S.budget; const n = S.photos.size;
+  openSheet(h('h2', { text: 'Delete this walk?' }),
+    h('div', { class: 'note warn' },
+      h('div', { style: 'font-weight:600', text: b.header.address || '(no address yet)' }),
+      h('div', { class: 'small', text: `${b.header.propertyCode || 'no property code'} · ${b.header.homeType}${b.status === 'Submitted' ? ' · submitted' : ''}` }),
+      h('div', { class: 'small', text: `${pl(b.rooms.length, 'room')} · ${pl(b.lines.length, 'line')} · ${money(budgetTotal(b))} · ${pl(n, 'photo')}` })),
+    h('div', { class: 'muted', text: 'Everything above is removed from this phone and can\'t be recovered. Nothing has been uploaded yet.' }),
+    h('label', { class: 'field' }, h('span', { text: 'Type DELETE to confirm' }), h('input', { type: 'text', id: 'del-walk', autocapitalize: 'characters' })),
+    h('div', { class: 'row' }, h('button', { class: 'btn', onclick: closeSheet }, 'Keep it'),
+      h('button', { class: 'btn danger', onclick: async () => {
+        if ($('del-walk').value.trim().toUpperCase() !== 'DELETE') { $('del-walk').classList.add('need'); return; }
+        for (const id of Array.from(S.photos.keys())) await del('photos', id);
+        const left = await photosFor(b.id); for (const x of left) await del('photos', x.id);
+        await del('budgets', b.id); S.photos = new Map(); S.budget = null; closeSheet(); go('home', {}, true);
+      } }, 'Delete walk')));
+}
+function deleteRoomSheet(r) {
+  const b = S.budget; const ls = b.lines.filter((l) => l.roomId === r.id);
+  const ps = Array.from(S.photos.values()).filter((x) => x.roomId === r.id);
+  const shared = ls.flatMap((l) => l.photoIds).filter((id) => S.photos.has(id) && S.photos.get(id).roomId !== r.id);
+  openSheet(h('h2', { text: `Delete ${roomShort(r)}?` }),
+    h('div', { class: 'note warn' },
+      h('div', { text: ls.length ? `${pl(ls.length, 'line')} (${money(ls.reduce((a, l) => a + lineTotal(l), 0))}) will be deleted:` : 'This room has no lines.' }),
+      ...ls.map((l) => h('div', { class: 'small', text: `• ${l.name}` }))),
+    h('div', { class: 'note' }, ps.length ? `${pl(ps.length, 'photo')} taken in this room will be kept and moved to Additional Before Reno photos.` : 'No photos were taken in this room.'),
+    h('div', { class: 'row' }, h('button', { class: 'btn', onclick: closeSheet }, 'Keep it'),
+      h('button', { class: 'btn danger', onclick: async () => {
+        for (const x of ps) { x.roomId = null; x.additional = true; await put('photos', x); }
+        b.lines = b.lines.filter((l) => l.roomId !== r.id); b.rooms = b.rooms.filter((x) => x.id !== r.id);
+        await saveBudget(); closeSheet(); back();
+      } }, 'Delete room')));
+}
+function reviewIssues(b) {
+  const blocks = [], flags = []; const hd = b.header;
+  if (!hd.address) blocks.push({ text: 'Address is missing', go: () => go('header', {}) });
+  if (!hd.propertyCode) blocks.push({ text: 'Property code is missing', go: () => go('header', {}) });
+  if (!b.lines.length) blocks.push({ text: 'No lines yet', go: null });
+  const room = (l) => { const r = b.rooms.find((x) => x.id === l.roomId); return r ? roomShort(r) : 'No room'; };
+  b.lines.filter((l) => !l.photoIds.length).forEach((l) => blocks.push({ text: `Needs a photo: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
+  if (hd.homeType === 'Express' || hd.sow) b.lines.filter((l) => !l.scope).forEach((l) => blocks.push({ text: `MRI/SOW or PM-ADD not chosen: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
+  b.lines.filter((l) => !l.needsPricing && Math.abs(l.price - l.catalogPrice) > 0.004 && !(l.priceReason || '').trim()).forEach((l) => blocks.push({ text: `Price change needs a reason: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
+  const seen = new Map(); b.lines.forEach((l) => { const k = l.roomId + '|' + l.itemId; seen.set(k, (seen.get(k) || []).concat(l)); });
+  seen.forEach((v) => { if (v.length > 1) flags.push({ text: `Same item ${v.length} times: ${v[0].name}`, sub: room(v[0]), go: () => go('room', { roomId: v[0].roomId }) }); });
+  b.rooms.filter((r) => !b.lines.some((l) => l.roomId === r.id)).forEach((r) => blocks.push({ text: `Room with no lines: ${roomShort(r)}`, sub: 'Add a line, or delete the room', go: () => go('room', { roomId: r.id }) }));
+  b.lines.filter((l) => !(l.price > 0)).forEach((l) => flags.push({ text: `$0 price: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
+  return { blocks, flags };
+}
+SCREENS.review = (app) => {
+  const b = S.budget; setTop('Review', true, true);
+  const { blocks, flags } = reviewIssues(b);
+  const row = (x, warn) => h('button', { class: 'item', disabled: !x.go, onclick: () => x.go && x.go() },
+    h('div', { class: 'grow' }, h('div', { class: 't', text: x.text }), x.sub ? h('div', { class: 's', text: x.sub }) : null),
+    h('span', { class: 'pill' + (warn ? ' warn' : ''), style: 'flex:0 0 auto', text: warn ? 'must fix' : 'check' }));
+  app.append(
+    h('div', { class: 'card' }, h('div', { class: 't', text: `${pl(b.rooms.length, 'room')} · ${pl(b.lines.length, 'line')} · ${money(budgetTotal(b))} · ${pl(S.photos.size, 'photo')}` })),
+    h('div', { class: 'card' }, h('h2', { text: blocks.length ? `Must fix before submit (${blocks.length})` : 'Nothing blocks submit' }),
+      blocks.length ? h('div', { class: 'list' }, ...blocks.map((x) => row(x, true))) : h('div', { class: 'note ok', text: 'Every room has a line, every line has a photo, and the header is complete.' })),
+    h('div', { class: 'card' }, h('h2', { text: flags.length ? `Worth a look (${flags.length})` : 'No duplicates or $0 lines' }),
+      flags.length ? h('div', { class: 'muted small', text: 'These don\'t block submit. Tap one to check it.' }) : null,
+      flags.length ? h('div', { class: 'list' }, ...flags.map((x) => row(x, false))) : null));
+  setFab(h('button', { class: 'btn', onclick: back }, 'Back'),
+    h('button', { class: 'btn primary', disabled: blocks.length > 0, onclick: () => go('additional', {}) }, 'Next: photos'));
+};
+SCREENS.additional = (app) => {
+  const b = S.budget; setTop('Additional Before Reno', true, true);
+  const ps = Array.from(S.photos.values()).filter((x) => !x.roomId || !b.rooms.some((r) => r.id === x.roomId)).sort((x, y) => x.createdAt - y.createdAt);
+  app.append(h('div', { class: 'card' },
+    h('div', { class: 'muted', text: 'Last step: anything worth keeping on file that isn\'t tied to a line (general condition, items noted for the record). Zero is fine.' }),
+    ps.length ? h('div', { class: 'photos' }, ...ps.map((x) => h('button', { class: 'ph', onclick: () => trayPhotoSheet(x.id, () => { closeSheet(); render(); }) }, h('img', { src: thumbUrl(x.id), alt: '' })))) :
+      h('p', { class: 'muted', text: 'No additional photos yet.' }),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', onclick: () => openCamera(() => render()) }, 'Camera'),
+      h('button', { class: 'btn', onclick: () => pickFromLibrary(() => render()) }, 'Camera roll'))));
+  setFab(h('button', { class: 'btn', onclick: back }, 'Back'),
+    h('button', { class: 'btn primary', onclick: submitSheet }, 'Submit walk'));
+};
+function submitSheet() {
+  const b = S.budget; const { blocks } = reviewIssues(b);
+  if (blocks.length) { alertNote('Something changed; go back to Review to fix it.'); return; }
+  const add = Array.from(S.photos.values()).filter((x) => !x.roomId || !b.rooms.some((r) => r.id === x.roomId)).length;
+  openSheet(h('h2', { text: 'Submit this walk?' }),
+    h('div', { class: 'note' },
+      h('div', { style: 'font-weight:600', text: b.header.address }),
+      h('div', { class: 'small', text: `${b.header.propertyCode} · ${b.header.homeType} · RD ${b.header.rd || '—'}` }),
+      h('div', { class: 'small', text: `${pl(b.rooms.length, 'room')} · ${pl(b.lines.length, 'line')} · ${money(budgetTotal(b))}` }),
+      h('div', { class: 'small', text: `${pl(S.photos.size, 'photo')}, including ${add} additional` })),
+    h('div', { class: 'muted small', text: 'In this test build, submit marks the walk done and locks it. Upload to RC comes in a later milestone. You can reopen it to edit.' }),
+    h('div', { class: 'row' }, h('button', { class: 'btn', onclick: closeSheet }, 'Not yet'),
+      h('button', { class: 'btn primary', onclick: async () => { b.status = 'Submitted'; b.submitted = Date.now(); await saveBudget(); closeSheet(); go('home', {}, true); } }, 'Submit')));
+}
 function duplicateRoomSheet(r) {
   const n = S.budget.lines.filter((l) => l.roomId === r.id).length;
   openSheet(h('h2', { text: `Duplicate ${roomShort(r)}` }),
@@ -557,7 +658,7 @@ function traySheet(roomId) {
 function allPhotosSheet() {
   const b = S.budget; const a = assignedIds(b); const all = Array.from(S.photos.values()).sort((x, y) => x.createdAt - y.createdAt);
   const groups = b.rooms.map((r) => ({ name: roomShort(r), ps: all.filter((x) => x.roomId === r.id) })).filter((g) => g.ps.length);
-  const loose = all.filter((x) => !x.roomId || !b.rooms.some((r) => r.id === x.roomId)); if (loose.length) groups.push({ name: 'No room', ps: loose });
+  const loose = all.filter((x) => !x.roomId || !b.rooms.some((r) => r.id === x.roomId)); if (loose.length) groups.push({ name: 'Additional Before Reno', ps: loose });
   if (!all.length) { closeSheet(); render(); return; }
   const back = () => allPhotosSheet();
   openSheet(h('h2', { text: `All photos (${all.length})` }),
@@ -818,7 +919,7 @@ async function storePhoto(src, w0, h0, origin) {
   const full = await jpeg(src, MAX_EDGE, QUALITY, w0, h0); const th = await jpeg(src, THUMB, 0.7, w0, h0);
   if (!full.blob) throw new Error('encode');
   const roomId = S.params && (S.params.roomId || (S.params.lineId && (S.budget.lines.find((l) => l.id === S.params.lineId) || {}).roomId));
-  const p = { id: uid(), budgetId: S.budget.id, roomId: roomId || null, blob: full.blob, thumb: th.blob, w: full.w, h: full.h, bytes: full.blob.size, origin, createdAt: Date.now() };
+  const p = { id: uid(), budgetId: S.budget.id, roomId: roomId || null, additional: S.screen === 'additional' || undefined, blob: full.blob, thumb: th.blob, w: full.w, h: full.h, bytes: full.blob.size, origin, createdAt: Date.now() };
   await put('photos', p); S.photos.set(p.id, p); S.budget.photoCount = (S.budget.photoCount != null ? S.budget.photoCount : 0) + 1; await saveBudget(); return p;
 }
 let camStream = null, camCb = null, camIds = [];
@@ -872,7 +973,7 @@ async function copySummary() {
     `Data: ${S.data.label} v${S.data.version} (${S.data.items.length} items)`,
     `Walks: ${bs.length} · rooms ${bs.reduce((a, b) => a + b.rooms.length, 0)} · lines ${lines} · photos ${ps.length} (${(ps.reduce((a, p) => a + p.bytes, 0) / 1048576).toFixed(1)} MB)`,
     `Home screen: ${window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true ? 'yes' : 'no'}`,
-    ...bs.map((b) => `- ${b.header.address || '(no address)'} · ${b.mode === 'photos' ? 'photos only' : 'full'} · ${b.header.homeType} · copied lines ${b.lines.filter((l) => l.copied).length} · measured lines ${b.lines.filter((l) => l.measure).length} · ${b.rooms.length} rooms · ${b.lines.length} lines · ${money(budgetTotal(b))} · price changes ${b.lines.filter((l) => !l.needsPricing && Math.abs(l.price - l.catalogPrice) > 0.004).length} · PM-ADD ${b.lines.filter((l) => l.scope === 'PM-ADD').length} · lines without photos ${b.lines.filter((l) => !l.photoIds.length).length}`),
+    ...bs.map((b) => { const bp = ps.filter((x) => x.budgetId === b.id); const on = new Set(b.lines.flatMap((l) => l.photoIds)); return `- ${b.header.address || '(no address)'} · ${b.status === 'Submitted' ? 'SUBMITTED' : 'draft'} · ${b.mode === 'photos' ? 'photos only' : 'full'} · photos ${bp.length} (not on a line ${bp.filter((x) => !on.has(x.id)).length}, additional ${bp.filter((x) => !x.roomId).length}) · blocks submit ${reviewIssues(b).blocks.length} · ${b.header.homeType} · copied lines ${b.lines.filter((l) => l.copied).length} · measured lines ${b.lines.filter((l) => l.measure).length} · ${b.rooms.length} rooms · ${b.lines.length} lines · ${money(budgetTotal(b))} · price changes ${b.lines.filter((l) => !l.needsPricing && Math.abs(l.price - l.catalogPrice) > 0.004).length} · PM-ADD ${b.lines.filter((l) => l.scope === 'PM-ADD').length} · lines without photos ${b.lines.filter((l) => !l.photoIds.length).length}`; }),
     `Browser: ${navigator.userAgent}`].join('\n');
   try { await navigator.clipboard.writeText(txt); alertNote('Copied. Paste it into your chat with Claude.'); }
   catch (e) { openSheet(h('div', { class: 'muted small', text: 'Select all and copy:' }), h('textarea', { value: txt, style: 'min-height:200px;font-family:var(--mono);font-size:12px' }), h('button', { class: 'btn wide', onclick: closeSheet }, 'Close')); }
