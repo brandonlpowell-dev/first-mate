@@ -235,7 +235,7 @@ function setTop(title, showBack, showTotal) {
   $('t-total').textContent = showTotal && S.budget ? money(budgetTotal(S.budget)) : '';
 }
 function setFab(...buttons) { const f = $('fab'); f.replaceChildren(...buttons); f.hidden = !buttons.length; }
-function openSheet(...kids) { $('sheet').replaceChildren(...kids); $('modal').hidden = false; }
+function openSheet(...kids) { $('sheet').replaceChildren(...kids.filter((k) => k != null && k !== false)); $('modal').hidden = false; }
 function closeSheet() { $('modal').hidden = true; $('sheet').replaceChildren(); }
 $('modal').addEventListener('click', (e) => { if (e.target === $('modal')) closeSheet(); });
 
@@ -347,9 +347,9 @@ SCREENS.budget = (app) => {
       b.mode === 'photos' ? h('div', { class: 'note' },
         h('div', { text: 'Photos only: add rooms and shoot. Build lines when you\'re ready.' }),
         h('button', { class: 'btn primary wide', style: 'margin-top:8px', onclick: async () => { b.mode = 'full'; await saveBudget(); go('vendors', { first: false }); } }, 'Start building lines')) : null),
-    unassigned(b).length && b.mode !== 'photos' ? h('button', { class: 'card', style: 'text-align:left', onclick: () => traySheet(null) },
-      h('div', { class: 'row' }, h('div', { class: 't', style: 'font-weight:600', text: `Unassigned photos (${unassigned(b).length})` }), h('span', { class: 'pill warn', style: 'flex:0 0 auto', text: 'attach or remove' })),
-      h('div', { class: 'photos' }, ...unassigned(b).slice(0, 8).map((x) => h('span', { class: 'ph' }, h('img', { src: thumbUrl(x.id), alt: '' }))))) : null,
+    S.photos.size ? h('button', { class: 'card', style: 'text-align:left', onclick: () => allPhotosSheet() },
+      h('div', { class: 'row' }, h('div', { class: 't', style: 'font-weight:600', text: `All photos (${S.photos.size})` }), unassigned(b).length ? h('span', { class: 'pill', style: 'flex:0 0 auto', text: `${unassigned(b).length} not on a line` }) : null),
+      h('div', { class: 'photos' }, ...Array.from(S.photos.values()).sort((x, y) => y.createdAt - x.createdAt).slice(0, 8).map((x) => h('span', { class: 'ph' }, h('img', { src: thumbUrl(x.id), alt: '' }))))) : null,
     h('div', { class: 'card' }, h('h2', { text: 'Rooms' }), rooms,
       h('div', { class: 'row' },
         h('button', { class: 'btn', onclick: addRoomSheet }, 'Add room'),
@@ -498,7 +498,7 @@ SCREENS.room = (app, p) => {
     app.append(h('div', { class: 'card' },
       h('div', { class: 'row' }, h('div', { class: 'muted small', text: `${pl(rp.length, 'photo')} in this room` }),
         h('button', { class: 'btn slim', style: 'flex:0 0 auto', onclick: () => editRoomSheet(r) }, 'Rename')),
-      rp.length ? h('div', { class: 'photos' }, ...rp.map((x) => h('button', { class: 'ph', onclick: () => trayPhotoSheet(x.id) }, h('img', { src: thumbUrl(x.id), alt: '' })))) :
+      rp.length ? h('div', { class: 'photos' }, ...rp.map((x) => h('button', { class: 'ph', onclick: () => trayPhotoSheet(x.id, () => { closeSheet(); render(); }) }, h('img', { src: thumbUrl(x.id), alt: '' })))) :
         h('p', { class: 'muted', text: 'No photos yet. Tap Camera to shoot this room.' })));
     setFab(h('button', { class: 'btn primary', onclick: () => openCamera(() => render()) }, 'Camera'),
       h('button', { class: 'btn', onclick: () => pickFromLibrary(() => render()) }, 'Camera roll'));
@@ -521,7 +521,7 @@ SCREENS.room = (app, p) => {
       h('div', { style: 'display:flex;gap:8px;flex:0 0 auto' },
         h('button', { class: 'btn slim', style: 'width:auto;padding:0 14px', onclick: () => duplicateRoomSheet(r) }, 'Duplicate'),
         h('button', { class: 'btn slim', style: 'width:auto;padding:0 14px', onclick: () => editRoomSheet(r) }, 'Rename'))),
-    ru.length ? h('button', { class: 'note warn', style: 'text-align:left;border:0', onclick: () => traySheet(r.id) }, `${pl(ru.length, 'unassigned photo')} in this room: tap to attach`) : null,
+    ru.length ? h('button', { class: 'btn slim', style: 'width:100%;margin:6px 0', onclick: () => traySheet(r.id) }, `${pl(ru.length, 'photo')} not on a line: view or attach`) : null,
     list));
   const live = b.header.photoMode === 'live';
   const camBtn = h('button', { class: 'btn' + (live ? ' primary' : ''), onclick: () => openCamera((ids) => { if (ids.length) go('picker', { roomId: r.id, photoIds: ids }); }) }, 'Camera');
@@ -548,27 +548,45 @@ function duplicateRoomSheet(r) {
 function traySheet(roomId) {
   const list = unassigned(S.budget, roomId);
   if (!list.length) { closeSheet(); render(); return; }
-  openSheet(h('h2', { text: `Unassigned photos (${list.length})` }),
-    h('div', { class: 'muted small', text: 'Photos taken but not on any line yet. Tap one to attach it or remove it.' }),
-    h('div', { class: 'photos' }, ...list.map((x) => h('button', { class: 'ph', onclick: () => trayPhotoSheet(x.id, roomId) }, h('img', { src: thumbUrl(x.id), alt: '' })))),
+  const back = () => traySheet(roomId);
+  openSheet(h('h2', { text: `Photos not on a line (${list.length})` }),
+    h('div', { class: 'muted small', text: 'These are fine to leave; they go with the room. Tap one to view it or attach it to a line in this room.' }),
+    h('div', { class: 'photos' }, ...list.map((x) => h('button', { class: 'ph', onclick: () => trayPhotoSheet(x.id, back) }, h('img', { src: thumbUrl(x.id), alt: '' })))),
     h('button', { class: 'btn wide', onclick: () => { closeSheet(); render(); } }, 'Close'));
 }
-function trayPhotoSheet(pid, roomId) {
+function allPhotosSheet() {
+  const b = S.budget; const a = assignedIds(b); const all = Array.from(S.photos.values()).sort((x, y) => x.createdAt - y.createdAt);
+  const groups = b.rooms.map((r) => ({ name: roomShort(r), ps: all.filter((x) => x.roomId === r.id) })).filter((g) => g.ps.length);
+  const loose = all.filter((x) => !x.roomId || !b.rooms.some((r) => r.id === x.roomId)); if (loose.length) groups.push({ name: 'No room', ps: loose });
+  const back = () => allPhotosSheet();
+  openSheet(h('h2', { text: `All photos (${all.length})` }),
+    h('div', { class: 'muted small', text: 'Grouped by room. Photos marked "line" are on a line. Tap one to view it or attach it to a line in its room.' }),
+    ...groups.map((g) => h('div', { class: 'field' },
+      h('span', { text: `${g.name} · ${pl(g.ps.length, 'photo')}${g.ps.some((x) => !a.has(x.id)) ? ` (${g.ps.filter((x) => !a.has(x.id)).length} not on a line)` : ''}` }),
+      h('div', { class: 'photos' }, ...g.ps.map((x) => h('button', { class: 'ph', onclick: () => trayPhotoSheet(x.id, back) }, h('img', { src: thumbUrl(x.id), alt: '' }), a.has(x.id) ? h('span', { class: 'x', text: 'line' }) : null))))),
+    ...(all.length ? [] : [h('p', { class: 'muted', text: 'No photos yet.' })]),
+    h('button', { class: 'btn wide', onclick: () => { closeSheet(); render(); } }, 'Close'));
+}
+function trayPhotoSheet(pid, back) {
   const b = S.budget; const ph = S.photos.get(pid); if (!ph) return;
-  const lines = b.lines.slice().sort((x, y) => (y.roomId === ph.roomId) - (x.roomId === ph.roomId));
+  back = back || (() => { closeSheet(); render(); });
+  const onLines = b.lines.filter((l) => l.photoIds.includes(pid));
+  const room = b.rooms.find((x) => x.id === ph.roomId);
+  const lines = room ? b.lines.filter((l) => l.roomId === room.id) : b.lines;
   openSheet(h('img', { src: thumbUrl(pid), alt: '', style: 'width:100%;max-height:35vh;object-fit:contain;border-radius:10px' }),
+    h('div', { class: 'muted small', text: `${room ? roomShort(room) : 'No room'}${onLines.length ? ' · on ' + onLines.map((l) => l.name).join(', ') : ' · not on a line'}` }),
     h('div', { class: 'row' },
       h('button', { class: 'btn', onclick: () => { closeSheet(); viewPhoto(pid); } }, 'View full size'),
-      h('button', { class: 'btn danger', onclick: () => openSheet(h('h2', { text: 'Delete this photo?' }),
-        h('div', { class: 'muted', text: 'It is removed from this walk on this phone and can\'t be recovered. It isn\'t on any line.' }),
-        h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => trayPhotoSheet(pid, roomId) }, 'Keep it'),
-          h('button', { class: 'btn danger', onclick: async () => { await del('photos', pid); S.photos.delete(pid); b.photoCount = Math.max(0, (b.photoCount || 1) - 1); await saveBudget(); traySheet(roomId); } }, 'Delete photo'))) }, 'Delete')),
-    lines.length ? h('div', { class: 'field' }, h('span', { text: 'Attach to a line' }),
-      h('div', { class: 'list' }, ...lines.map((l) => { const rr = b.rooms.find((x) => x.id === l.roomId);
-        return h('button', { class: 'item', onclick: async () => { if (!l.photoIds.includes(pid)) l.photoIds.push(pid); await saveBudget(); traySheet(roomId); } },
-          h('div', { class: 'grow' }, h('div', { class: 't', text: l.name }), h('div', { class: 's', text: rr ? roomShort(rr) : '' }))); }))) :
-      h('div', { class: 'muted small', text: 'No lines yet to attach it to.' }),
-    h('button', { class: 'btn wide', onclick: () => (b.mode === 'photos' ? (closeSheet(), render()) : traySheet(roomId)) }, 'Back'));
+      onLines.length ? null : h('button', { class: 'btn danger', onclick: () => openSheet(h('h2', { text: 'Delete this photo?' }),
+        h('div', { class: 'muted', text: `It is removed from ${room ? roomShort(room) : 'this walk'} on this phone and can't be recovered. It isn't on any line.` }),
+        h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => trayPhotoSheet(pid, back) }, 'Keep it'),
+          h('button', { class: 'btn danger', onclick: async () => { await del('photos', pid); S.photos.delete(pid); b.photoCount = Math.max(0, (b.photoCount || 1) - 1); await saveBudget(); back(); } }, 'Delete photo'))) }, 'Delete')),
+    b.mode === 'photos' ? null : lines.length ? h('div', { class: 'field' }, h('span', { text: room ? `Attach to a line in ${roomShort(room)}` : 'Attach to a line' }),
+      h('div', { class: 'list' }, ...lines.map((l) => { const on = l.photoIds.includes(pid);
+        return h('button', { class: 'item', disabled: on, onclick: async () => { if (on) return; l.photoIds.push(pid); await saveBudget(); back(); } },
+          h('div', { class: 'grow' }, h('div', { class: 't', text: l.name }), h('div', { class: 's', text: on ? 'Already on this line' : `${pl(l.photoIds.length, 'photo')}` }))); }))) :
+      h('div', { class: 'muted small', text: room ? `No lines in ${roomShort(room)} yet.` : 'No lines yet.' }),
+    h('button', { class: 'btn wide', onclick: back }, 'Back'));
 }
 function editRoomSheet(r) {
   openSheet(h('h2', { text: `Rename ${r.type}` }),
