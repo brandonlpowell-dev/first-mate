@@ -127,7 +127,7 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
 <script>
 (() => {
 'use strict';
-const VERSION = 'V2I1';
+const VERSION = 'V2I2';
 const MAX_EDGE = 3000, QUALITY = 0.85, THUMB = 240;
 const QTY_TYPES = ['Num of Units', 'Linear Ft', 'Sqft', 'Sqr Yards'];
 const UNIT_SHORT = { 'Num of Units': 'ea', 'Linear Ft': 'LF', 'Sqft': 'SF', 'Sqr Yards': 'SY' };
@@ -196,6 +196,28 @@ function thumbUrl(pid) {
   const u = URL.createObjectURL(p.thumb); S.urls.set(pid, u); return u;
 }
 
+const assignedIds = (b) => new Set(b.lines.flatMap((l) => l.photoIds));
+const unassigned = (b, roomId) => { const a = assignedIds(b); return Array.from(S.photos.values()).filter((p) => !a.has(p.id) && (!roomId || p.roomId === roomId)).sort((x, y) => x.createdAt - y.createdAt); };
+const isFlooring = (l) => /flooring|carpet|vinyl|tile|lvp|laminate/i.test(`${l.cat} ${l.sub} ${l.name}`);
+// Accepts 12, 12.5, 12'6, 12'6", 12 6 (feet then inches).
+function parseFt(s) {
+  const t = String(s || '').trim().replace(/[’′]/g, "'").replace(/[”″]/g, '"');
+  if (!t) return null;
+  const m = t.match(/^(\d+(?:\.\d+)?)\s*(?:'|ft)?\s*(?:(\d+(?:\.\d+)?)\s*(?:"|in)?)?$/i);
+  if (!m) return NaN;
+  return parseFloat(m[1]) + (m[2] ? parseFloat(m[2]) / 12 : 0);
+}
+// Square footage pre-fill: interior paint and gross-living items from under air; full exterior paint from under roof.
+function prefill(it, hd) {
+  if (it.u !== 'Sqft') return null;
+  const n = norm(it.n), s = norm(it.s);
+  const ua = parseFloat(String(hd.underAir).replace(/,/g, '')), ur = parseFloat(String(hd.underRoof).replace(/,/g, ''));
+  if (s === 'exterior paint' && /exterior paint - (full|no brick)/.test(n)) return ur > 0 ? { qty: ur, basis: 'under roof', sf: ur } : null;
+  if (n.includes('epoxy')) return null;
+  if (s === 'interior paint' || n.includes('gross living')) return ua > 0 ? { qty: ua, basis: 'under air', sf: ua } : null;
+  return null;
+}
+
 // ---------- Navigation ----------
 function go(screen, params, replace) {
   if (S.screen && !replace) S.nav.push({ screen: S.screen, params: S.params });
@@ -253,12 +275,12 @@ SCREENS.home = async (app) => {
   const list = h('div', { class: 'list' });
   if (!S.budgets.length) list.append(h('p', { class: 'muted', text: 'No walks yet. Tap New walk to start.' }));
   for (const b of S.budgets) {
-    const ph = new Set(b.lines.flatMap((l) => l.photoIds)).size;
+    const ph = b.photoCount != null ? b.photoCount : new Set(b.lines.flatMap((l) => l.photoIds)).size;
     list.append(h('button', { class: 'item', onclick: () => openBudget(b.id) },
       h('div', { class: 'grow' },
         h('div', { class: 't', text: b.header.address || '(no address yet)' }),
         h('div', { class: 's', text: `${b.header.propertyCode || 'no property code'} · ${pl(b.rooms.length, 'room')} · ${pl(b.lines.length, 'line')} · ${pl(ph, 'photo')}` }),
-        h('div', { class: 's', text: `Draft · updated ${new Date(b.updated).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` })),
+        h('div', { class: 's', text: `${b.mode === 'photos' ? 'Photos only' : 'Draft'} · updated ${new Date(b.updated).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` })),
       h('span', { class: 'amt', text: money(budgetTotal(b)) })));
   }
   app.append(
@@ -277,13 +299,19 @@ async function openBudget(id) {
   const ps = await photosFor(id); S.photos = new Map(ps.map((p) => [p.id, p]));
   go('budget', {});
 }
-async function newBudget() {
+function newBudget() {
+  openSheet(h('h2', { text: 'New walk' }),
+    h('button', { class: 'btn primary wide', onclick: () => { closeSheet(); createBudget('full'); } }, 'Full walk: photos and lines'),
+    h('button', { class: 'btn wide', onclick: () => { closeSheet(); createBudget('photos'); } }, 'Photos only: shoot now, build lines later'),
+    h('div', { class: 'muted small', text: 'Photos only needs market, address and property code. Photos are filed by room; switch to building lines any time.' }));
+}
+async function createBudget(mode) {
   const last = await kvGet('lastMarket', 'TPA');
   const m = market(last) || S.data.markets[0];
   const b = { id: uid(), created: Date.now(), updated: Date.now(), status: 'Draft',
     header: { market: m.id, address: '', city: '', state: m.state, propertyCode: '', homeType: 'Renovate', sow: false, rd: m.rd, rdEmail: m.rdEmail, photoMode: 'live', underAir: '', underRoof: '', beds: '', baths: '', stateOk: false },
     vendors: [{ slot: uid(), service: 'General Contractor', vendorId: null, contactId: null, primary: true }],
-    rooms: [], lines: [] };
+    rooms: [], lines: [], mode, photoCount: 0 };
   if (navigator.storage && navigator.storage.persist) { try { await navigator.storage.persist(); } catch (e) { /* ignore */ } }
   await put('budgets', b); S.budget = b; S.photos = new Map();
   S.nav = [{ screen: 'home', params: {} }];
@@ -297,7 +325,7 @@ SCREENS.budget = (app) => {
   const rooms = h('div', { class: 'list' });
   if (!b.rooms.length) rooms.append(h('p', { class: 'muted', text: 'No rooms yet.' }));
   for (const r of b.rooms) {
-    const ls = byRoom(r.id); const ph = new Set(ls.flatMap((l) => l.photoIds)).size;
+    const ls = byRoom(r.id); const ph = Array.from(S.photos.values()).filter((x) => x.roomId === r.id).length || new Set(ls.flatMap((l) => l.photoIds)).size;
     rooms.append(h('button', { class: 'item', onclick: () => go('room', { roomId: r.id }) },
       h('div', { class: 'grow' }, h('div', { class: 't', text: roomShort(r) }), h('div', { class: 's', text: `${pl(ls.length, 'line')} · ${pl(ph, 'photo')}` })),
       h('span', { class: 'amt', text: money(ls.reduce((a, l) => a + lineTotal(l), 0)) })));
@@ -312,7 +340,13 @@ SCREENS.budget = (app) => {
         h('div', { class: 'row', style: 'flex:0 0 auto' },
           h('button', { class: 'btn slim', onclick: () => go('header', {}) }, 'Header'),
           h('button', { class: 'btn slim', onclick: () => go('vendors', {}) }, 'Vendors'))),
-      missing.length ? h('div', { class: 'note warn', text: `Still needed: ${missing.join(', ')}.` }) : null),
+      missing.length ? h('div', { class: 'note warn', text: `Still needed: ${missing.join(', ')}.` }) : null,
+      b.mode === 'photos' ? h('div', { class: 'note' },
+        h('div', { text: 'Photos only: add rooms and shoot. Build lines when you\'re ready.' }),
+        h('button', { class: 'btn primary wide', style: 'margin-top:8px', onclick: async () => { b.mode = 'full'; await saveBudget(); go('vendors', { first: false }); } }, 'Start building lines')) : null),
+    unassigned(b).length && b.mode !== 'photos' ? h('button', { class: 'card', style: 'text-align:left', onclick: () => traySheet(null) },
+      h('div', { class: 'row' }, h('div', { class: 't', style: 'font-weight:600', text: `Unassigned photos (${unassigned(b).length})` }), h('span', { class: 'pill warn', style: 'flex:0 0 auto', text: 'attach or remove' })),
+      h('div', { class: 'photos' }, ...unassigned(b).slice(0, 8).map((x) => h('span', { class: 'ph' }, h('img', { src: thumbUrl(x.id), alt: '' }))))) : null,
     h('div', { class: 'card' }, h('h2', { text: 'Rooms' }), rooms,
       h('div', { class: 'row' },
         h('button', { class: 'btn', onclick: addRoomSheet }, 'Add room'),
@@ -355,8 +389,9 @@ SCREENS.header = (app, p) => {
       h('label', { class: 'field' }, h('span', { text: 'Baths (optional)' }), h('input', { type: 'text', inputmode: 'numeric', value: hd.baths, onchange: (e) => upd('baths', e.target.value.trim()) })))));
   setFab(h('button', { class: 'btn primary', onclick: () => {
     if (mismatch && !hd.stateOk) { alertNote('Confirm the market first: the state doesn\'t match.'); return; }
-    if (p.first) { S.screen = 'vendors'; S.params = { first: true }; render(); } else back();
-  } }, p.first ? 'Next: vendors' : 'Done'));
+    if (p.first && b.mode === 'photos') { S.screen = 'budget'; S.params = {}; S.nav = [{ screen: 'home', params: {} }]; render(); }
+    else if (p.first) { S.screen = 'vendors'; S.params = { first: true }; render(); } else back();
+  } }, p.first ? (b.mode === 'photos' ? 'Next: rooms' : 'Next: vendors') : 'Done'));
 };
 function alertNote(text) { openSheet(h('div', { class: 'note warn', text }), h('button', { class: 'btn wide', onclick: closeSheet }, 'OK')); }
 
@@ -455,6 +490,17 @@ SCREENS.room = (app, p) => {
   const b = S.budget; const r = b.rooms.find((x) => x.id === p.roomId); if (!r) { back(); return; }
   setTop(roomShort(r), true, true);
   const ls = b.lines.filter((l) => l.roomId === r.id);
+  if (b.mode === 'photos') {
+    const rp = Array.from(S.photos.values()).filter((x) => x.roomId === r.id).sort((x, y) => x.createdAt - y.createdAt);
+    app.append(h('div', { class: 'card' },
+      h('div', { class: 'row' }, h('div', { class: 'muted small', text: `${pl(rp.length, 'photo')} in this room` }),
+        h('button', { class: 'btn slim', style: 'flex:0 0 auto', onclick: () => editRoomSheet(r) }, 'Rename')),
+      rp.length ? h('div', { class: 'photos' }, ...rp.map((x) => h('button', { class: 'ph', onclick: () => trayPhotoSheet(x.id) }, h('img', { src: thumbUrl(x.id), alt: '' })))) :
+        h('p', { class: 'muted', text: 'No photos yet. Tap Camera to shoot this room.' })));
+    setFab(h('button', { class: 'btn primary', onclick: () => openCamera(() => render()) }, 'Camera'),
+      h('button', { class: 'btn', onclick: () => pickFromLibrary(() => render()) }, 'Camera roll'));
+    return;
+  }
   const list = h('div', { class: 'list' });
   if (!ls.length) list.append(h('p', { class: 'muted', text: 'No lines yet. Take photos, then pick the item, or add an item first.' }));
   for (const l of ls) {
@@ -462,17 +508,65 @@ SCREENS.room = (app, p) => {
     list.append(h('button', { class: 'item', onclick: () => go('line', { lineId: l.id }) },
       first && S.photos.has(first) ? h('img', { class: 'thumb', src: thumbUrl(first), alt: '' }) : h('span', { class: 'thumb empty', text: 'no photo' }),
       h('div', { class: 'grow' }, h('div', { class: 't', text: l.name }),
+        l.copied && !l.photoIds.length ? h('span', { class: 'pill warn', text: 'copied: add photo to review' }) : null,
         h('div', { class: 's', text: `${l.qty} ${UNIT_SHORT[l.qtyType] || ''} · ${l.photoIds.length} photo${l.photoIds.length === 1 ? '' : 's'}${b.header.homeType === 'Express' || b.header.sow ? (l.scope ? ' · ' + l.scope : ' · MRI/SOW or PM-ADD?') : ''}` })),
       h('span', { class: 'amt', text: money(lineTotal(l)) })));
   }
+  const ru = unassigned(b, r.id);
   app.append(h('div', { class: 'card' },
     h('div', { class: 'row' }, h('div', { class: 'muted small', text: `${pl(ls.length, 'line')} · ${money(ls.reduce((a, l) => a + lineTotal(l), 0))}` }),
-      h('button', { class: 'btn slim', style: 'flex:0 0 auto', onclick: () => editRoomSheet(r) }, 'Rename')), list));
+      h('div', { style: 'display:flex;gap:8px;flex:0 0 auto' },
+        h('button', { class: 'btn slim', style: 'width:auto;padding:0 14px', onclick: () => duplicateRoomSheet(r) }, 'Duplicate'),
+        h('button', { class: 'btn slim', style: 'width:auto;padding:0 14px', onclick: () => editRoomSheet(r) }, 'Rename'))),
+    ru.length ? h('button', { class: 'note warn', style: 'text-align:left;border:0', onclick: () => traySheet(r.id) }, `${pl(ru.length, 'unassigned photo')} in this room: tap to attach`) : null,
+    list));
   const live = b.header.photoMode === 'live';
   const camBtn = h('button', { class: 'btn' + (live ? ' primary' : ''), onclick: () => openCamera((ids) => { if (ids.length) go('picker', { roomId: r.id, photoIds: ids }); }) }, 'Camera');
   const addBtn = h('button', { class: 'btn' + (live ? '' : ' primary'), onclick: () => go('picker', { roomId: r.id, photoIds: [] }) }, 'Add item');
   setFab(...(live ? [camBtn, addBtn] : [addBtn, camBtn]));
 };
+function duplicateRoomSheet(r) {
+  const n = S.budget.lines.filter((l) => l.roomId === r.id).length;
+  openSheet(h('h2', { text: `Duplicate ${roomShort(r)}` }),
+    h('div', { class: 'muted small', text: `Copies ${pl(n, 'line')} with quantities, vendors and notes, but no photos. Each copied line shows as needing review until it gets a photo.` }),
+    h('label', { class: 'field' }, h('span', { text: `New ${r.type} description (required, e.g., Guest)` }), h('input', { type: 'text', id: 'dup-desc' })),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', onclick: closeSheet }, 'Cancel'),
+      h('button', { class: 'btn primary', onclick: async () => {
+        const d = $('dup-desc').value.trim();
+        if (!d) { $('dup-desc').classList.add('need'); return; }
+        if (S.budget.rooms.some((x) => x.type === r.type && norm(x.desc) === norm(d))) { alertNote('A room with that name already exists.'); return; }
+        const nr = { id: uid(), type: r.type, desc: d }; S.budget.rooms.push(nr);
+        S.budget.lines.filter((l) => l.roomId === r.id).forEach((l) => S.budget.lines.push(JSON.parse(JSON.stringify(Object.assign({}, l, { id: uid(), roomId: nr.id, photoIds: [], copied: true, created: Date.now() })))));
+        await saveBudget(); closeSheet(); go('room', { roomId: nr.id }, true);
+      } }, 'Duplicate')));
+  setTimeout(() => $('dup-desc') && $('dup-desc').focus(), 50);
+}
+function traySheet(roomId) {
+  const list = unassigned(S.budget, roomId);
+  if (!list.length) { closeSheet(); render(); return; }
+  openSheet(h('h2', { text: `Unassigned photos (${list.length})` }),
+    h('div', { class: 'muted small', text: 'Photos taken but not on any line yet. Tap one to attach it or remove it.' }),
+    h('div', { class: 'photos' }, ...list.map((x) => h('button', { class: 'ph', onclick: () => trayPhotoSheet(x.id, roomId) }, h('img', { src: thumbUrl(x.id), alt: '' })))),
+    h('button', { class: 'btn wide', onclick: () => { closeSheet(); render(); } }, 'Close'));
+}
+function trayPhotoSheet(pid, roomId) {
+  const b = S.budget; const ph = S.photos.get(pid); if (!ph) return;
+  const lines = b.lines.slice().sort((x, y) => (y.roomId === ph.roomId) - (x.roomId === ph.roomId));
+  openSheet(h('img', { src: thumbUrl(pid), alt: '', style: 'width:100%;max-height:35vh;object-fit:contain;border-radius:10px' }),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', onclick: () => { closeSheet(); viewPhoto(pid); } }, 'View full size'),
+      h('button', { class: 'btn danger', onclick: () => openSheet(h('h2', { text: 'Delete this photo?' }),
+        h('div', { class: 'muted', text: 'It is removed from this walk on this phone and can\'t be recovered. It isn\'t on any line.' }),
+        h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => trayPhotoSheet(pid, roomId) }, 'Keep it'),
+          h('button', { class: 'btn danger', onclick: async () => { await del('photos', pid); S.photos.delete(pid); b.photoCount = Math.max(0, (b.photoCount || 1) - 1); await saveBudget(); traySheet(roomId); } }, 'Delete photo'))) }, 'Delete')),
+    lines.length ? h('div', { class: 'field' }, h('span', { text: 'Attach to a line' }),
+      h('div', { class: 'list' }, ...lines.map((l) => { const rr = b.rooms.find((x) => x.id === l.roomId);
+        return h('button', { class: 'item', onclick: async () => { if (!l.photoIds.includes(pid)) l.photoIds.push(pid); await saveBudget(); traySheet(roomId); } },
+          h('div', { class: 'grow' }, h('div', { class: 't', text: l.name }), h('div', { class: 's', text: rr ? roomShort(rr) : '' }))); }))) :
+      h('div', { class: 'muted small', text: 'No lines yet to attach it to.' }),
+    h('button', { class: 'btn wide', onclick: () => (b.mode === 'photos' ? (closeSheet(), render()) : traySheet(roomId)) }, 'Back'));
+}
 function editRoomSheet(r) {
   openSheet(h('h2', { text: `Rename ${r.type}` }),
     h('label', { class: 'field' }, h('span', { text: 'Description' }), h('input', { type: 'text', id: 'rn', value: r.desc })),
@@ -533,7 +627,7 @@ async function createLine(it, roomId, photoIds) {
   const b = S.budget; const pg = b.vendors.find((v) => v.primary) || b.vendors[0];
   const noSow = b.header.homeType === 'Renovate' && !b.header.sow;
   const l = { id: uid(), roomId, itemId: it.id, name: it.n, cat: it.c, sub: it.s, qtyType: it.u, entry: it.e,
-    qty: it.e === 'Lump sum' ? 1 : (it.d || 1), price: it.p, catalogPrice: it.p, needsPricing: !!it.np, priceReason: '',
+    qty: it.e === 'Lump sum' ? 1 : (prefill(it, b.header) ? prefill(it, b.header).qty : (it.d || 1)), prefill: prefill(it, b.header), waste: null, measure: null, price: it.p, catalogPrice: it.p, needsPricing: !!it.np, priceReason: '',
     slot: pg ? pg.slot : null, scope: noSow ? 'PM-ADD' : 'MRI/SOW', pmAddDesc: '', notesVendor: '', notesCustomer: '', customerEdited: false,
     photoIds: photoIds.slice(), created: Date.now() };
   b.lines.push(l);
@@ -583,6 +677,8 @@ SCREENS.line = (app, p) => {
     h('div', { class: 'card' },
       h('div', { class: 'row' },
         h('label', { class: 'field' }, h('span', { text: 'Quantity' }), qtyCtl),
+        (l.qtyType === 'Sqft' || l.qtyType === 'Sqr Yards') ? h('button', { class: 'btn', style: 'flex:1 1 100%', onclick: () => measureSheet(l) }, l.measure ? `Measure (${pl(l.measure.areas.length, 'area')}, ${l.measure.waste}% waste)` : 'Measure') : null,
+        l.prefill ? h('div', { class: 'muted small', style: 'flex:1 1 100%', text: `Pre-filled from ${l.prefill.basis} square footage (${Number(l.prefill.sf).toLocaleString()} sq ft). Adjust to add or remove area.` }) : null,
         h('label', { class: 'field' }, h('span', { text: 'Quantity type' }), h('select', { onchange: (e) => { l.qtyType = e.target.value; save(true); } }, ...QTY_TYPES.map((t) => h('option', { value: t, selected: t === l.qtyType ? true : null }, t))))),
       h('label', { class: 'field' }, h('span', { text: l.needsPricing ? 'Price (needs pricing: enter it)' : `Price per unit (list ${money(l.catalogPrice)})` }),
         h('input', { type: 'text', inputmode: 'decimal', value: l.price, onchange: (e) => { l.price = Math.max(0, parseFloat(String(e.target.value).replace(/[$,]/g, '')) || 0); save(true); } })),
@@ -608,6 +704,48 @@ SCREENS.line = (app, p) => {
   } }, 'Done'));
 };
 
+function measureSheet(l) {
+  const st = { areas: l.measure ? l.measure.areas.map((a) => Object.assign({}, a)) : [], waste: l.measure ? l.measure.waste : (l.waste != null ? l.waste : (isFlooring(l) ? 10 : 0)), toNotes: false };
+  if (!st.areas.length || st.areas[st.areas.length - 1].w || st.areas[st.areas.length - 1].l) st.areas.push({ name: '', w: '', l: '' });
+  const names = S.budget.rooms.map(roomShort);
+  const calc = () => {
+    let sf = 0, bad = false;
+    for (const a of st.areas) { const w = parseFt(a.w), ln = parseFt(a.l); if (w === null || ln === null) continue; if (isNaN(w) || isNaN(ln)) { bad = true; continue; } sf += w * ln; }
+    const withWaste = sf * (1 + (parseFloat(st.waste) || 0) / 100);
+    const qty = l.qtyType === 'Sqr Yards' ? Math.ceil(withWaste / 9) : Math.ceil(withWaste);
+    return { sf, withWaste, qty, bad };
+  };
+  const out = h('div', { class: 'note' });
+  const showTotal = () => { const c = calc(); out.className = 'note' + (c.bad ? ' warn' : ' ok');
+    out.textContent = c.bad ? 'One size couldn\'t be read. Use feet, or feet and inches like 12\'6.' :
+      `${Math.round(c.sf).toLocaleString()} sq ft measured + ${parseFloat(st.waste) || 0}% waste = ${c.qty.toLocaleString()} ${l.qtyType === 'Sqr Yards' ? 'sq yd' : 'sq ft'}`; };
+  const rows = h('div', { class: 'list' });
+  const drawRows = () => {
+    rows.replaceChildren(...st.areas.map((a, i) => h('div', { class: 'row', style: 'padding:6px 0;border-bottom:1px solid var(--line)' },
+      h('input', { type: 'text', placeholder: 'Area (e.g., Primary)', value: a.name, list: 'fm-rooms', style: 'flex:1 1 100%', oninput: (e) => { a.name = e.target.value; } }),
+      h('input', { type: 'text', inputmode: 'decimal', placeholder: "Width (12'6)", value: a.w, oninput: (e) => { a.w = e.target.value; grow(i); showTotal(); } }),
+      h('input', { type: 'text', inputmode: 'decimal', placeholder: "Length (14)", value: a.l, oninput: (e) => { a.l = e.target.value; grow(i); showTotal(); } }))));
+  };
+  const grow = (i) => { if (i === st.areas.length - 1 && st.areas[i].w && st.areas[i].l) { st.areas.push({ name: '', w: '', l: '' }); const keep = document.activeElement; drawRows(); if (keep && keep.placeholder) { const all = rows.querySelectorAll('input'); const idx = i * 3 + (keep.placeholder.startsWith('Width') ? 1 : 2); if (all[idx]) all[idx].focus(); } } };
+  drawRows(); showTotal();
+  openSheet(h('h2', { text: 'Measure' }), h('div', { class: 'muted small', text: l.name }),
+    h('datalist', { id: 'fm-rooms' }, ...names.map((n) => h('option', { value: n }))),
+    rows,
+    h('label', { class: 'field' }, h('span', { text: 'Waste factor % (this line only)' }), h('input', { type: 'text', inputmode: 'decimal', value: st.waste, oninput: (e) => { st.waste = e.target.value; showTotal(); } })),
+    out,
+    h('label', { class: 'row', style: 'gap:10px' }, h('input', { type: 'checkbox', style: 'flex:0 0 auto;width:22px;height:22px', onchange: (e) => { st.toNotes = e.target.checked; } }), h('span', { text: 'Add the measurements to the vendor instructions' })),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', onclick: closeSheet }, 'Cancel'),
+      h('button', { class: 'btn primary', onclick: async () => {
+        const c = calc(); if (c.bad) return;
+        const areas = st.areas.filter((a) => a.w && a.l);
+        l.measure = { areas, waste: parseFloat(st.waste) || 0, sqft: Math.round(c.sf) }; l.waste = l.measure.waste; l.qty = c.qty; l.prefill = null;
+        if (st.toNotes && areas.length) {
+          const txt = 'Measurements: ' + areas.map((a) => `${a.name || 'Area'} ${a.w} x ${a.l}`).join('; ') + `. ${Math.round(c.sf)} sq ft + ${l.waste}% waste.`;
+          l.notesVendor = (l.notesVendor ? l.notesVendor + '\n' : '') + txt; if (!l.customerEdited) l.notesCustomer = l.notesVendor;
+        }
+        await saveBudget(); closeSheet(); render(); } }, 'Use this quantity')));
+}
 function photoSheet(l, id) {
   openSheet(h('img', { src: thumbUrl(id), alt: '', style: 'width:100%;max-height:40vh;object-fit:contain;border-radius:10px' }),
     h('div', { class: 'row' },
@@ -643,7 +781,7 @@ async function storePhoto(src, w0, h0, origin) {
   if (!full.blob) throw new Error('encode');
   const roomId = S.params && (S.params.roomId || (S.params.lineId && (S.budget.lines.find((l) => l.id === S.params.lineId) || {}).roomId));
   const p = { id: uid(), budgetId: S.budget.id, roomId: roomId || null, blob: full.blob, thumb: th.blob, w: full.w, h: full.h, bytes: full.blob.size, origin, createdAt: Date.now() };
-  await put('photos', p); S.photos.set(p.id, p); return p;
+  await put('photos', p); S.photos.set(p.id, p); S.budget.photoCount = (S.budget.photoCount != null ? S.budget.photoCount : 0) + 1; await saveBudget(); return p;
 }
 let camStream = null, camCb = null, camIds = [];
 async function openCamera(cb) {
@@ -696,7 +834,7 @@ async function copySummary() {
     `Data: ${S.data.label} v${S.data.version} (${S.data.items.length} items)`,
     `Walks: ${bs.length} · rooms ${bs.reduce((a, b) => a + b.rooms.length, 0)} · lines ${lines} · photos ${ps.length} (${(ps.reduce((a, p) => a + p.bytes, 0) / 1048576).toFixed(1)} MB)`,
     `Home screen: ${window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true ? 'yes' : 'no'}`,
-    ...bs.map((b) => `- ${b.header.address || '(no address)'} · ${b.header.homeType} · ${b.rooms.length} rooms · ${b.lines.length} lines · ${money(budgetTotal(b))} · price changes ${b.lines.filter((l) => !l.needsPricing && Math.abs(l.price - l.catalogPrice) > 0.004).length} · PM-ADD ${b.lines.filter((l) => l.scope === 'PM-ADD').length} · lines without photos ${b.lines.filter((l) => !l.photoIds.length).length}`),
+    ...bs.map((b) => `- ${b.header.address || '(no address)'} · ${b.mode === 'photos' ? 'photos only' : 'full'} · ${b.header.homeType} · copied lines ${b.lines.filter((l) => l.copied).length} · measured lines ${b.lines.filter((l) => l.measure).length} · ${b.rooms.length} rooms · ${b.lines.length} lines · ${money(budgetTotal(b))} · price changes ${b.lines.filter((l) => !l.needsPricing && Math.abs(l.price - l.catalogPrice) > 0.004).length} · PM-ADD ${b.lines.filter((l) => l.scope === 'PM-ADD').length} · lines without photos ${b.lines.filter((l) => !l.photoIds.length).length}`),
     `Browser: ${navigator.userAgent}`].join('\n');
   try { await navigator.clipboard.writeText(txt); alertNote('Copied. Paste it into your chat with Claude.'); }
   catch (e) { openSheet(h('div', { class: 'muted small', text: 'Select all and copy:' }), h('textarea', { value: txt, style: 'min-height:200px;font-family:var(--mono);font-size:12px' }), h('button', { class: 'btn wide', onclick: closeSheet }, 'Close')); }
