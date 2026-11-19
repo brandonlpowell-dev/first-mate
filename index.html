@@ -131,7 +131,7 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
 <script>
 (() => {
 'use strict';
-const VERSION = 'V3I2';
+const VERSION = 'V3I3';
 const MAX_EDGE = 3000, QUALITY = 0.85, THUMB = 240;
 const QTY_TYPES = ['Num of Units', 'Linear Ft', 'Sqft', 'Sqr Yards'];
 const UNIT_SHORT = { 'Num of Units': 'ea', 'Linear Ft': 'LF', 'Sqft': 'SF', 'Sqr Yards': 'SY' };
@@ -584,8 +584,10 @@ function reviewIssues(b) {
   if (hd.homeType === 'Express' || hd.sow) b.lines.filter((l) => !l.scope).forEach((l) => blocks.push({ text: `MRI/SOW or PM-ADD not chosen: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
   if (hd.homeType === 'Express' || hd.sow) b.lines.filter((l) => l.scope === 'PM-ADD' && !(l.pmAddDesc || '').trim()).forEach((l) => blocks.push({ text: `PM-ADD needs a reason: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
   b.lines.filter((l) => !l.needsPricing && Math.abs(l.price - l.catalogPrice) > 0.004 && !(l.priceReason || '').trim()).forEach((l) => blocks.push({ text: `Price change needs a reason: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
-  const seen = new Map(); b.lines.forEach((l) => { const k = l.roomId + '|' + l.itemId; seen.set(k, (seen.get(k) || []).concat(l)); });
-  seen.forEach((v) => { if (v.length > 1) flags.push({ text: `Same item ${v.length} times: ${v[0].name}`, sub: room(v[0]), go: () => go('room', { roomId: v[0].roomId }) }); });
+  // Exact duplicates only: same room and every detail the same (the same item with different details is normal).
+  const sig = (l) => JSON.stringify([l.roomId, l.itemId, l.name, l.qtyType, l.qty, l.price, l.slot, l.scope || '', (l.pmAddDesc || '').trim(), (l.notesVendor || '').trim(), (l.notesCustomer || '').trim(), (l.priceReason || '').trim()]);
+  const seen = new Map(); b.lines.forEach((l) => { const k = sig(l); seen.set(k, (seen.get(k) || []).concat(l)); });
+  seen.forEach((v) => { if (v.length > 1) flags.push({ text: `Exact duplicate (${v.length} identical lines): ${v[0].name}`, sub: `${room(v[0])} · likely an error`, go: () => go('room', { roomId: v[0].roomId }) }); });
   b.rooms.filter((r) => !b.lines.some((l) => l.roomId === r.id)).forEach((r) => blocks.push({ text: `Room with no lines: ${roomShort(r)}`, sub: 'Add a line, or delete the room', go: () => go('room', { roomId: r.id }) }));
   b.lines.filter((l) => !(l.price > 0)).forEach((l) => flags.push({ text: `$0 price: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
   return { blocks, flags };
@@ -600,7 +602,7 @@ SCREENS.review = (app) => {
     h('div', { class: 'card' }, h('div', { class: 't', text: `${pl(b.rooms.length, 'room')} · ${pl(b.lines.length, 'line')} · ${money(budgetTotal(b))} · ${pl(S.photos.size, 'photo')}` })),
     h('div', { class: 'card' }, h('h2', { text: blocks.length ? `Must fix before submit (${blocks.length})` : 'Nothing blocks submit' }),
       blocks.length ? h('div', { class: 'list' }, ...blocks.map((x) => row(x, true))) : h('div', { class: 'note ok', text: 'Every room has a line, every line has a photo, and the header is complete.' })),
-    h('div', { class: 'card' }, h('h2', { text: flags.length ? `Worth a look (${flags.length})` : 'No duplicates or $0 lines' }),
+    h('div', { class: 'card' }, h('h2', { text: flags.length ? `Worth a look (${flags.length})` : 'No exact duplicates or $0 lines' }),
       flags.length ? h('div', { class: 'muted small', text: 'These don\'t block submit. Tap one to check it.' }) : null,
       flags.length ? h('div', { class: 'list' }, ...flags.map((x) => row(x, false))) : null));
   setFab(h('button', { class: 'btn', onclick: back }, 'Back'),
