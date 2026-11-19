@@ -131,7 +131,7 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
 <script>
 (() => {
 'use strict';
-const VERSION = 'V3I1';
+const VERSION = 'V3I2';
 const MAX_EDGE = 3000, QUALITY = 0.85, THUMB = 240;
 const QTY_TYPES = ['Num of Units', 'Linear Ft', 'Sqft', 'Sqr Yards'];
 const UNIT_SHORT = { 'Num of Units': 'ea', 'Linear Ft': 'LF', 'Sqft': 'SF', 'Sqr Yards': 'SY' };
@@ -582,6 +582,7 @@ function reviewIssues(b) {
   const room = (l) => { const r = b.rooms.find((x) => x.id === l.roomId); return r ? roomShort(r) : 'No room'; };
   b.lines.filter((l) => !l.photoIds.length).forEach((l) => blocks.push({ text: `Needs a photo: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
   if (hd.homeType === 'Express' || hd.sow) b.lines.filter((l) => !l.scope).forEach((l) => blocks.push({ text: `MRI/SOW or PM-ADD not chosen: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
+  if (hd.homeType === 'Express' || hd.sow) b.lines.filter((l) => l.scope === 'PM-ADD' && !(l.pmAddDesc || '').trim()).forEach((l) => blocks.push({ text: `PM-ADD needs a reason: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
   b.lines.filter((l) => !l.needsPricing && Math.abs(l.price - l.catalogPrice) > 0.004 && !(l.priceReason || '').trim()).forEach((l) => blocks.push({ text: `Price change needs a reason: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
   const seen = new Map(); b.lines.forEach((l) => { const k = l.roomId + '|' + l.itemId; seen.set(k, (seen.get(k) || []).concat(l)); });
   seen.forEach((v) => { if (v.length > 1) flags.push({ text: `Same item ${v.length} times: ${v[0].name}`, sub: room(v[0]), go: () => go('room', { roomId: v[0].roomId }) }); });
@@ -828,7 +829,7 @@ SCREENS.line = (app, p) => {
       noSow ? h('div', { class: 'muted small', text: 'Renovate with no client SOW: every line is PM-ADD.' }) :
         h('div', { class: 'field' }, h('span', { text: 'MRI/SOW or PM-ADD' }),
           h('div', { class: 'seg' }, ...['MRI/SOW', 'PM-ADD'].map((v) => h('button', { class: l.scope === v ? 'on' : '', onclick: () => { l.scope = v; save(true); } }, v)))),
-      !noSow && l.scope === 'PM-ADD' ? h('label', { class: 'field' }, h('span', { text: 'Why it\'s added (optional)' }), h('input', { type: 'text', value: l.pmAddDesc, onchange: (e) => { l.pmAddDesc = e.target.value.trim(); save(); } })) : null),
+      !noSow && l.scope === 'PM-ADD' ? h('label', { class: 'field' }, h('span', { text: 'Why it\'s added (required)' }), h('input', { type: 'text', class: (l.pmAddDesc || '').trim() ? '' : 'need', oninput: (e) => e.target.classList.toggle('need', !e.target.value.trim()), value: l.pmAddDesc, onchange: (e) => { l.pmAddDesc = e.target.value.trim(); save(); } })) : null),
     h('div', { class: 'card' },
       h('label', { class: 'field' }, h('span', { text: 'Instructions to vendor' }),
         h('textarea', { value: l.notesVendor, oninput: (e) => { l.notesVendor = e.target.value; if (!l.customerEdited && !express) { l.notesCustomer = l.notesVendor; const c = $('cust'); if (c) c.value = l.notesCustomer; } }, onchange: () => save() })),
@@ -1014,12 +1015,12 @@ function buildOutputs(b) {
   const measureText = (l) => l.measure ? l.measure.areas.map((a) => `${a.name || 'Room'} ${a.w} x ${a.l}`).join('; ') + ` = ${l.measure.sqft} sq ft` : '';
   // 1. Handoff package
   { const wb = XLSX.utils.book_new();
-    const H = ['#', 'Room', 'Category', 'Subcategory', 'Item', 'Qty type', 'Qty', 'Price', 'List price', 'Total', 'Vendor slot', 'Vendor', 'MRI/SOW or PM-ADD', 'PM-ADD reason', 'Price change reason', 'Vendor instructions', 'Customer notes', 'Waste %', 'Measurements', 'Photos'];
+    const H = ['#', 'Room', 'Category', 'Subcategory', 'Item', 'Qty type', 'Qty', 'Price', 'List price', 'Total', 'Vendor slot', 'Vendor', 'Vendor contact', 'MRI/SOW or PM-ADD', 'PM-ADD reason', 'Price change reason', 'Vendor instructions', 'Customer notes', 'Waste %', 'Measurements', 'Photos'];
     const rows = [H, ...ls.map((l, i) => { const v = slotInfo(b, l.slot); const sc = hd.homeType === 'Express' || hd.sow ? (l.scope || '') : 'PM-ADD';
-      return [i + 1, roomNameOf(b, l.roomId), l.cat, l.sub, l.name, l.qtyType, l.qty, l.price, l.catalogPrice, lineTotal(l), v[0], v[1], sc, l.pmAddDesc || '', isPriceChange(l) ? (l.priceReason || '') : '', l.notesVendor || '', hd.homeType === 'Express' ? '' : (l.notesCustomer || ''), l.waste != null ? l.waste : '', measureText(l), pn(l)]; }),
-      [], ['', '', '', '', 'Total', '', '', '', '', budgetTotal(b)]];
-    XLSX.utils.book_append_sheet(wb, mkSheet(rows, [4, 18, 18, 18, 44, 12, 7, 11, 11, 12, 16, 26, 14, 24, 28, 40, 40, 8, 34, 40], [7, 8, 9], 1), 'Lines');
-    const hr = headerRows(b, 'Handoff package').concat([['Rooms', b.rooms.length], ['Lines', b.lines.length], ['Budget total', budgetTotal(b)], ['Photos', S.photos.size]]);
+      return [i + 1, roomNameOf(b, l.roomId), l.cat, l.sub, l.name, l.qtyType, l.qty, l.price, l.catalogPrice, c2(lineTotal(l)), v[0], v[1], v[2], sc, l.pmAddDesc || '', isPriceChange(l) ? (l.priceReason || '') : '', l.notesVendor || '', hd.homeType === 'Express' ? '' : (l.notesCustomer || ''), l.waste != null ? l.waste : '', measureText(l), pn(l)]; }),
+      [], ['', '', '', '', 'Total', '', '', '', '', c2(budgetTotal(b))]];
+    XLSX.utils.book_append_sheet(wb, mkSheet(rows, [4, 18, 18, 18, 44, 12, 7, 11, 11, 12, 16, 26, 30, 14, 24, 28, 40, 40, 8, 34, 40], [7, 8, 9], 1), 'Lines');
+    const hr = headerRows(b, 'Handoff package').concat([['Rooms', b.rooms.length], ['Lines', b.lines.length], ['Budget total', c2(budgetTotal(b))], ['Photos', S.photos.size]]);
     XLSX.utils.book_append_sheet(wb, mkSheet(hr, [28, 60], [1], hr.length - 2), 'Header');
     const vr = [['Slot', 'Service', 'Company', 'Contact email'], ...b.vendors.map((s) => { const v = slotInfo(b, s.slot); return [v[0], s.service, v[1], v[2]]; })];
     XLSX.utils.book_append_sheet(wb, mkSheet(vr, [14, 22, 30, 34]), 'Vendors');
@@ -1030,17 +1031,18 @@ function buildOutputs(b) {
   // 2. Exceptions report
   { const wb = XLSX.utils.book_new(); const rows = headerRows(b, 'Exceptions report');
     const adds = ls.filter((l) => (hd.homeType === 'Express' || hd.sow) ? l.scope === 'PM-ADD' : true);
-    rows.push([hd.homeType === 'Renovate' && !hd.sow ? 'Item adds (PM-ADD) — no client SOW, so every line is an add' : 'Item adds (PM-ADD)']);
-    rows.push(['Room', 'Item', 'Qty', 'Price', 'Total', 'Reason']);
-    if (adds.length) adds.forEach((l) => rows.push([roomNameOf(b, l.roomId), l.name, l.qty, l.price, lineTotal(l), l.pmAddDesc || ''])); else rows.push(['None']);
-    rows.push(['', 'Item adds total', '', '', c2(adds.reduce((a, l) => a + lineTotal(l), 0))]); rows.push([]);
+    rows.push(['Item adds (PM-ADD)']);
+    if (hd.homeType === 'Renovate' && !hd.sow) { rows.push([`No client SOW: every line is an add (${pl(adds.length, 'line')}, ${money(budgetTotal(b))}). The full list is in the handoff file.`]); rows.push([]); }
+    else { rows.push(['Room', 'Item', 'Qty', 'Price', 'Total', 'Reason']);
+      if (adds.length) adds.forEach((l) => rows.push([roomNameOf(b, l.roomId), l.name, l.qty, l.price, c2(lineTotal(l)), l.pmAddDesc || ''])); else rows.push(['None']);
+      rows.push(['', 'Item adds total', '', '', c2(adds.reduce((a, l) => a + lineTotal(l), 0))]); rows.push([]); }
     const pc = ls.filter(isPriceChange);
     rows.push(['Price adjustments']); rows.push(['Room', 'Item', 'Qty', 'List price', 'New price', 'Difference per unit', 'Total effect', 'Reason']);
     if (pc.length) pc.forEach((l) => rows.push([roomNameOf(b, l.roomId), l.name, l.qty, l.catalogPrice, l.price, c2(l.price - l.catalogPrice), c2((l.price - l.catalogPrice) * l.qty), l.priceReason || ''])); else rows.push(['None']);
     rows.push(['', 'Price adjustments total effect', '', '', '', '', c2(pc.reduce((a, l) => a + (l.price - l.catalogPrice) * l.qty, 0))]); rows.push([]);
     const np = ls.filter((l) => l.needsPricing);
     rows.push(['Priced in the field (no list price)']); rows.push(['Room', 'Item', 'Qty', 'Price', 'Total', 'Reason']);
-    if (np.length) np.forEach((l) => rows.push([roomNameOf(b, l.roomId), l.name, l.qty, l.price, lineTotal(l), l.priceReason || ''])); else rows.push(['None']);
+    if (np.length) np.forEach((l) => rows.push([roomNameOf(b, l.roomId), l.name, l.qty, l.price, c2(lineTotal(l)), l.priceReason || ''])); else rows.push(['None']);
     XLSX.utils.book_append_sheet(wb, mkSheet(rows, [26, 50, 8, 12, 12, 16, 14, 40], [3, 4, 5, 6], 11), 'Exceptions');
     files.push(wbFile(wb, `${base} - Exceptions.xlsx`)); }
   // 3. Client scope summary (Renovate with client SOW only)
@@ -1048,8 +1050,8 @@ function buildOutputs(b) {
     const wb = XLSX.utils.book_new(); const rows = headerRows(b, 'Client scope summary').filter((r) => r[0] !== 'RD' && r[0] !== 'Made by');
     rows.push(['Room', 'Item', 'Qty', 'Unit', 'Total', 'In client SOW or added', 'Notes']);
     let last = null;
-    ls.forEach((l) => { const rn = roomNameOf(b, l.roomId); rows.push([rn === last ? '' : rn, l.name, l.qty, UNIT_SHORT[l.qtyType] || l.qtyType, lineTotal(l), l.scope === 'PM-ADD' ? 'Added' : 'In SOW', l.notesCustomer || '']); last = rn; });
-    rows.push([]); rows.push(['', 'Total', '', '', budgetTotal(b)]);
+    ls.forEach((l) => { const rn = roomNameOf(b, l.roomId); rows.push([rn === last ? '' : rn, l.name, l.qty, UNIT_SHORT[l.qtyType] || l.qtyType, c2(lineTotal(l)), l.scope === 'PM-ADD' ? 'Added' : 'In SOW', l.notesCustomer || '']); last = rn; });
+    rows.push([]); rows.push(['', 'Total', '', '', c2(budgetTotal(b))]);
     XLSX.utils.book_append_sheet(wb, mkSheet(rows, [22, 50, 8, 8, 12, 20, 50], [4], 9), 'Scope');
     files.push(wbFile(wb, `${base} - Client scope.xlsx`));
   }
