@@ -127,10 +127,11 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
 <input type="file" id="i-lib" accept="image/*" multiple hidden>
 <input type="file" id="i-data" accept=".json,application/json" hidden>
 
+<script src="xlsx.mini.min.js"></script>
 <script>
 (() => {
 'use strict';
-const VERSION = 'V2I3';
+const VERSION = 'V3I1';
 const MAX_EDGE = 3000, QUALITY = 0.85, THUMB = 240;
 const QTY_TYPES = ['Num of Units', 'Linear Ft', 'Sqft', 'Sqr Yards'];
 const UNIT_SHORT = { 'Num of Units': 'ea', 'Linear Ft': 'LF', 'Sqft': 'SF', 'Sqr Yards': 'SY' };
@@ -338,6 +339,8 @@ SCREENS.budget = (app) => {
   const sub = b.status === 'Submitted';
   if (sub) app.append(h('div', { class: 'note ok' },
     h('div', { text: `Submitted ${new Date(b.submitted).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}. Upload to RC comes in a later milestone; until then it stays on this phone.` }),
+    h('button', { class: 'btn primary wide', style: 'margin-top:8px', onclick: outputsSheet }, 'Email files to RD'),
+    h('button', { class: 'btn wide', style: 'margin-top:8px', onclick: savePhotosZip }, 'Save photos (zip)'),
     h('button', { class: 'btn wide', style: 'margin-top:8px', onclick: async () => { b.status = 'Draft'; b.submitted = null; await saveBudget(); render(); } }, 'Reopen to edit')));
   app.append(
     h('div', { class: 'card' },
@@ -625,9 +628,9 @@ function submitSheet() {
       h('div', { class: 'small', text: `${b.header.propertyCode} · ${b.header.homeType} · RD ${b.header.rd || '—'}` }),
       h('div', { class: 'small', text: `${pl(b.rooms.length, 'room')} · ${pl(b.lines.length, 'line')} · ${money(budgetTotal(b))}` }),
       h('div', { class: 'small', text: `${pl(S.photos.size, 'photo')}, including ${add} additional` })),
-    h('div', { class: 'muted small', text: 'In this test build, submit marks the walk done and locks it. Upload to RC comes in a later milestone. You can reopen it to edit.' }),
+    h('div', { class: 'muted small', text: 'Submit locks the walk. Next, the walk screen offers Email files to RD and Save photos. You can reopen it to edit.' }),
     h('div', { class: 'row' }, h('button', { class: 'btn', onclick: closeSheet }, 'Not yet'),
-      h('button', { class: 'btn primary', onclick: async () => { b.status = 'Submitted'; b.submitted = Date.now(); await saveBudget(); closeSheet(); go('home', {}, true); } }, 'Submit')));
+      h('button', { class: 'btn primary', onclick: async () => { b.status = 'Submitted'; b.submitted = Date.now(); await saveBudget(); closeSheet(); S.nav = [{ screen: 'home', params: {} }]; S.screen = 'budget'; S.params = {}; render(); } }, 'Submit')));
 }
 function duplicateRoomSheet(r) {
   const n = S.budget.lines.filter((l) => l.roomId === r.id).length;
@@ -963,6 +966,161 @@ $('i-lib').onchange = async (e) => {
   closeSheet(); await cb(ids);
   if (bad) alertNote(`${bad} photo${bad === 1 ? '' : 's'} couldn't be read.`);
 };
+
+// ---------- Outputs (milestone 3): handoff, exceptions, client scope, photos ----------
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|#%&{}$!'@+`=]/g, '').replace(/\s+/g, ' ').trim();
+const roomNameOf = (b, id) => { const r = b.rooms.find((x) => x.id === id); return r ? roomShort(r) : ''; };
+const c2 = (n) => Math.round(n * 100) / 100;
+const isPriceChange = (l) => !l.needsPricing && Math.abs((l.price || 0) - (l.catalogPrice || 0)) > 0.004;
+function photoNames(b) {
+  const code = safeName(b.header.propertyCode) || 'walk';
+  const all = Array.from(S.photos.values()).sort((x, y) => x.createdAt - y.createdAt);
+  const map = new Map(); all.forEach((p, i) => map.set(p.id, `${code}_${String(i + 1).padStart(3, '0')}.jpg`));
+  return { all, map };
+}
+function slotInfo(b, slotId) {
+  const s = b.vendors.find((x) => x.slot === slotId) || b.vendors.find((x) => x.primary); if (!s) return ['', '', ''];
+  const v = s.vendorId && vendorById(s.vendorId); const c = v && v.contacts.find((x) => x.id === s.contactId);
+  return [s.primary ? 'Primary GC' : s.service, v ? v.name : '(not chosen)', c ? c.email : ''];
+}
+function orderedLines(b) {
+  const ri = new Map(b.rooms.map((r, i) => [r.id, i]));
+  return b.lines.slice().sort((x, y) => ((ri.has(x.roomId) ? ri.get(x.roomId) : 999) - (ri.has(y.roomId) ? ri.get(y.roomId) : 999)) || (x.created - y.created));
+}
+function headerRows(b, title) {
+  const hd = b.header; const m = market(hd.market);
+  return [[title], [],
+    ['Address', [hd.address, hd.city, hd.state].filter(Boolean).join(', ')],
+    ['Property code', hd.propertyCode || ''],
+    ['Market', m ? `${m.id} · ${m.city}` : (hd.market || '')],
+    ['Home type', hd.homeType + (hd.homeType === 'Renovate' ? (hd.sow ? ' · client SOW provided' : ' · no client SOW') : '')],
+    ['RD', `${hd.rd || ''}${hd.rdEmail ? ' (' + hd.rdEmail + ')' : ''}`],
+    ['Under air / under roof sq ft', `${hd.underAir || '—'} / ${hd.underRoof || '—'}`],
+    ['Submitted', b.submitted ? new Date(b.submitted).toLocaleString() : 'not submitted'],
+    ['Made by', `Reno Captain: First Mate ${VERSION}`], []];
+}
+// rows -> worksheet; moneyCols are 0-based column indexes formatted as dollars from row `from` on
+function mkSheet(rows, widths, moneyCols, from) {
+  const ws = XLSX.utils.aoa_to_sheet(rows); ws['!cols'] = widths.map((w) => ({ wch: w }));
+  (moneyCols || []).forEach((c) => { for (let r = from || 0; r < rows.length; r++) { const a = XLSX.utils.encode_cell({ r, c }); if (ws[a] && ws[a].t === 'n') ws[a].z = '$#,##0.00'; } });
+  return ws;
+}
+function wbFile(wb, name) { const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }); return new File([out], name, { type: XLSX_TYPE }); }
+function buildOutputs(b) {
+  const hd = b.header; const base = safeName(`${hd.propertyCode || 'walk'} ${hd.address || ''}`);
+  const { map } = photoNames(b); const ls = orderedLines(b); const files = [];
+  const pn = (l) => l.photoIds.map((id) => map.get(id)).filter(Boolean).join(', ');
+  const measureText = (l) => l.measure ? l.measure.areas.map((a) => `${a.name || 'Room'} ${a.w} x ${a.l}`).join('; ') + ` = ${l.measure.sqft} sq ft` : '';
+  // 1. Handoff package
+  { const wb = XLSX.utils.book_new();
+    const H = ['#', 'Room', 'Category', 'Subcategory', 'Item', 'Qty type', 'Qty', 'Price', 'List price', 'Total', 'Vendor slot', 'Vendor', 'MRI/SOW or PM-ADD', 'PM-ADD reason', 'Price change reason', 'Vendor instructions', 'Customer notes', 'Waste %', 'Measurements', 'Photos'];
+    const rows = [H, ...ls.map((l, i) => { const v = slotInfo(b, l.slot); const sc = hd.homeType === 'Express' || hd.sow ? (l.scope || '') : 'PM-ADD';
+      return [i + 1, roomNameOf(b, l.roomId), l.cat, l.sub, l.name, l.qtyType, l.qty, l.price, l.catalogPrice, lineTotal(l), v[0], v[1], sc, l.pmAddDesc || '', isPriceChange(l) ? (l.priceReason || '') : '', l.notesVendor || '', hd.homeType === 'Express' ? '' : (l.notesCustomer || ''), l.waste != null ? l.waste : '', measureText(l), pn(l)]; }),
+      [], ['', '', '', '', 'Total', '', '', '', '', budgetTotal(b)]];
+    XLSX.utils.book_append_sheet(wb, mkSheet(rows, [4, 18, 18, 18, 44, 12, 7, 11, 11, 12, 16, 26, 14, 24, 28, 40, 40, 8, 34, 40], [7, 8, 9], 1), 'Lines');
+    const hr = headerRows(b, 'Handoff package').concat([['Rooms', b.rooms.length], ['Lines', b.lines.length], ['Budget total', budgetTotal(b)], ['Photos', S.photos.size]]);
+    XLSX.utils.book_append_sheet(wb, mkSheet(hr, [28, 60], [1], hr.length - 2), 'Header');
+    const vr = [['Slot', 'Service', 'Company', 'Contact email'], ...b.vendors.map((s) => { const v = slotInfo(b, s.slot); return [v[0], s.service, v[1], v[2]]; })];
+    XLSX.utils.book_append_sheet(wb, mkSheet(vr, [14, 22, 30, 34]), 'Vendors');
+    const onLines = (id) => ls.filter((l) => l.photoIds.includes(id)).map((l) => l.name).join('; ');
+    const pr = [['Photo', 'Room', 'On lines', 'Taken', 'Size (MB)'], ...photoNames(b).all.map((p) => [map.get(p.id), roomNameOf(b, p.roomId) || 'Additional Before Reno', onLines(p.id), new Date(p.createdAt).toLocaleString(), Math.round(p.bytes / 10485.76) / 100])];
+    XLSX.utils.book_append_sheet(wb, mkSheet(pr, [20, 22, 50, 22, 10]), 'Photos');
+    files.push(wbFile(wb, `${base} - Handoff.xlsx`)); }
+  // 2. Exceptions report
+  { const wb = XLSX.utils.book_new(); const rows = headerRows(b, 'Exceptions report');
+    const adds = ls.filter((l) => (hd.homeType === 'Express' || hd.sow) ? l.scope === 'PM-ADD' : true);
+    rows.push([hd.homeType === 'Renovate' && !hd.sow ? 'Item adds (PM-ADD) — no client SOW, so every line is an add' : 'Item adds (PM-ADD)']);
+    rows.push(['Room', 'Item', 'Qty', 'Price', 'Total', 'Reason']);
+    if (adds.length) adds.forEach((l) => rows.push([roomNameOf(b, l.roomId), l.name, l.qty, l.price, lineTotal(l), l.pmAddDesc || ''])); else rows.push(['None']);
+    rows.push(['', 'Item adds total', '', '', c2(adds.reduce((a, l) => a + lineTotal(l), 0))]); rows.push([]);
+    const pc = ls.filter(isPriceChange);
+    rows.push(['Price adjustments']); rows.push(['Room', 'Item', 'Qty', 'List price', 'New price', 'Difference per unit', 'Total effect', 'Reason']);
+    if (pc.length) pc.forEach((l) => rows.push([roomNameOf(b, l.roomId), l.name, l.qty, l.catalogPrice, l.price, c2(l.price - l.catalogPrice), c2((l.price - l.catalogPrice) * l.qty), l.priceReason || ''])); else rows.push(['None']);
+    rows.push(['', 'Price adjustments total effect', '', '', '', '', c2(pc.reduce((a, l) => a + (l.price - l.catalogPrice) * l.qty, 0))]); rows.push([]);
+    const np = ls.filter((l) => l.needsPricing);
+    rows.push(['Priced in the field (no list price)']); rows.push(['Room', 'Item', 'Qty', 'Price', 'Total', 'Reason']);
+    if (np.length) np.forEach((l) => rows.push([roomNameOf(b, l.roomId), l.name, l.qty, l.price, lineTotal(l), l.priceReason || ''])); else rows.push(['None']);
+    XLSX.utils.book_append_sheet(wb, mkSheet(rows, [26, 50, 8, 12, 12, 16, 14, 40], [3, 4, 5, 6], 11), 'Exceptions');
+    files.push(wbFile(wb, `${base} - Exceptions.xlsx`)); }
+  // 3. Client scope summary (Renovate with client SOW only)
+  if (hd.homeType === 'Renovate' && hd.sow) {
+    const wb = XLSX.utils.book_new(); const rows = headerRows(b, 'Client scope summary').filter((r) => r[0] !== 'RD' && r[0] !== 'Made by');
+    rows.push(['Room', 'Item', 'Qty', 'Unit', 'Total', 'In client SOW or added', 'Notes']);
+    let last = null;
+    ls.forEach((l) => { const rn = roomNameOf(b, l.roomId); rows.push([rn === last ? '' : rn, l.name, l.qty, UNIT_SHORT[l.qtyType] || l.qtyType, lineTotal(l), l.scope === 'PM-ADD' ? 'Added' : 'In SOW', l.notesCustomer || '']); last = rn; });
+    rows.push([]); rows.push(['', 'Total', '', '', budgetTotal(b)]);
+    XLSX.utils.book_append_sheet(wb, mkSheet(rows, [22, 50, 8, 8, 12, 20, 50], [4], 9), 'Scope');
+    files.push(wbFile(wb, `${base} - Client scope.xlsx`));
+  }
+  return files;
+}
+function emailText(b, files) {
+  const hd = b.header;
+  return { subject: `First Mate: ${hd.address || ''} (${hd.propertyCode || ''}) ${hd.homeType} budget`,
+    body: [`Send to: ${hd.rd || 'RD'}${hd.rdEmail ? ' <' + hd.rdEmail + '>' : ''}`, '',
+      `${hd.address || ''}${hd.city ? ', ' + hd.city : ''} · ${hd.propertyCode || ''} · ${hd.homeType}${hd.homeType === 'Renovate' ? (hd.sow ? ' · client SOW' : ' · no SOW') : ''}`,
+      `${pl(b.rooms.length, 'room')} · ${pl(b.lines.length, 'line')} · ${money(budgetTotal(b))} · ${pl(S.photos.size, 'photo')}`,
+      `Item adds: ${b.lines.filter((l) => (hd.homeType === 'Express' || hd.sow) ? l.scope === 'PM-ADD' : true).length} · Price adjustments: ${b.lines.filter(isPriceChange).length}`, '',
+      'Attached:', ...files.map((f) => `- ${f.name}`), '', 'Photos are sent separately.', '', `Made with Reno Captain: First Mate ${VERSION}`].join('\n') };
+}
+function saveBlob(blob, name) {
+  const u = URL.createObjectURL(blob); const a = h('a', { href: u, download: name }); document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 60000);
+}
+function outputsSheet() {
+  const b = S.budget;
+  if (!window.XLSX) { alertNote('The spreadsheet helper (xlsx.mini.min.js) is missing from the site. Upload it with index.html and sw.js, then open the app once with signal.'); return; }
+  let files; try { files = buildOutputs(b); } catch (e) { alertNote('Couldn\'t build the files: ' + e.message); return; }
+  const { subject, body } = emailText(b, files); const hd = b.header;
+  const canShare = !!(navigator.canShare && navigator.canShare({ files }));
+  openSheet(h('h2', { text: 'Email files to the RD' }),
+    h('div', { class: 'note' },
+      h('div', { style: 'font-weight:600', text: `To: ${hd.rd || 'RD'}` }),
+      h('div', { class: 'small', text: hd.rdEmail || 'No RD email for this market' }),
+      ...files.map((f) => h('div', { class: 'small', text: `• ${f.name} (${Math.max(1, Math.round(f.size / 1024))} KB)` }))),
+    canShare ? h('button', { class: 'btn primary wide', onclick: async () => {
+      try { await navigator.share({ files, title: subject, text: body }); closeSheet(); }
+      catch (e) { if (e && e.name === 'AbortError') return; alertNote('The share menu didn\'t open. Use Save files, then email instead.'); } } }, 'Email with attachments (share menu)') : null,
+    canShare ? h('div', { class: 'muted small', text: 'Pick Mail or Outlook. The RD\'s address is at the top of the message; copy it into To.' }) : null,
+    h('div', { class: 'field' }, h('span', { text: canShare ? 'If the share menu doesn\'t work' : 'Save each file, then open the email and attach them' }),
+      ...files.map((f) => h('button', { class: 'btn wide', style: 'margin-top:6px', onclick: () => saveBlob(f, f.name) }, `Save ${f.name.split(' - ').pop()}`)),
+      h('button', { class: 'btn wide', style: 'margin-top:6px', onclick: () => { location.href = `mailto:${encodeURIComponent(hd.rdEmail || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`; } }, 'Open email to the RD')),
+    h('button', { class: 'btn wide', onclick: closeSheet }, 'Close'));
+}
+// Minimal zip writer (stored, no compression: JPEGs don't shrink). Reads one photo at a time to keep memory low.
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+async function makeZip(entries, onStep) {
+  const enc = new TextEncoder(); const parts = []; const central = []; let off = 0;
+  const d = new Date(); const dt = ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF; const dd = (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF;
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]; const name = enc.encode(e.name); const data = new Uint8Array(await e.blob.arrayBuffer()); const crc = crc32(data); const size = data.length;
+    const lh = new DataView(new ArrayBuffer(30)); lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true); lh.setUint16(10, dt, true); lh.setUint16(12, dd, true); lh.setUint32(14, crc, true); lh.setUint32(18, size, true); lh.setUint32(22, size, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+    parts.push(lh.buffer, name, e.blob);
+    const ch = new DataView(new ArrayBuffer(46)); ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true); ch.setUint16(12, dt, true); ch.setUint16(14, dd, true); ch.setUint32(16, crc, true); ch.setUint32(20, size, true); ch.setUint32(24, size, true); ch.setUint16(28, name.length, true); ch.setUint32(42, off, true);
+    central.push(ch.buffer, name); off += 30 + name.length + size;
+    if (onStep) onStep(i + 1, entries.length);
+  }
+  const cdSize = central.reduce((a, x) => a + (x.byteLength !== undefined ? x.byteLength : x.length), 0);
+  const end = new DataView(new ArrayBuffer(22)); end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true); end.setUint32(12, cdSize, true); end.setUint32(16, off, true);
+  return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
+}
+async function savePhotosZip() {
+  const b = S.budget; const { all, map } = photoNames(b); if (!all.length) { alertNote('No photos in this walk.'); return; }
+  const folder = (p) => safeName(roomNameOf(b, p.roomId)) || 'Additional Before Reno';
+  const entries = all.map((p) => ({ name: `${folder(p)}/${map.get(p.id)}`, blob: p.blob }));
+  openSheet(h('div', { class: 'note', id: 'zip-prog', text: `Packing 0 of ${entries.length} photos…` }));
+  let zip; try { zip = await makeZip(entries, (n, t) => { const el = $('zip-prog'); if (el) el.textContent = `Packing ${n} of ${t} photos…`; }); }
+  catch (e) { closeSheet(); alertNote('Couldn\'t pack the photos: ' + e.message); return; }
+  const name = `${safeName(b.header.propertyCode || 'walk')} photos.zip`; const file = new File([zip], name, { type: 'application/zip' });
+  const mb = (zip.size / 1048576).toFixed(1); const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
+  openSheet(h('h2', { text: 'Photos packed' }),
+    h('div', { class: 'note', text: `${name}: ${pl(entries.length, 'photo')}, ${mb} MB, in folders by room. Names match the Photos column in the handoff file.` }),
+    canShare ? h('button', { class: 'btn primary wide', onclick: async () => { try { await navigator.share({ files: [file], title: name }); closeSheet(); } catch (e) { if (e && e.name !== 'AbortError') alertNote('The share menu didn\'t open. Use Save to Files instead.'); } } }, 'Share (Save to Files, OneDrive)') : null,
+    h('button', { class: 'btn wide', onclick: () => saveBlob(file, name) }, 'Save to Files'),
+    h('button', { class: 'btn wide', onclick: closeSheet }, 'Close'));
+}
 
 // ---------- Test summary ----------
 async function copySummary() {
