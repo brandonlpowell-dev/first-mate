@@ -140,7 +140,7 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
 <script>
 (() => {
 'use strict';
-const VERSION = 'V4I1';
+const VERSION = 'V4I2';
 const MAX_EDGE = 3000, QUALITY = 0.85, THUMB = 240;
 const QTY_TYPES = ['Num of Units', 'Linear Ft', 'Sqft', 'Sqr Yards'];
 const UNIT_SHORT = { 'Num of Units': 'ea', 'Linear Ft': 'LF', 'Sqft': 'SF', 'Sqr Yards': 'SY' };
@@ -238,7 +238,7 @@ function go(screen, params, replace) {
   render(); window.scrollTo(0, 0);
 }
 function back() { const p = S.nav.pop(); if (!p) { go('home', {}, true); return; } S.screen = p.screen; S.params = p.params; render(); }
-$('t-back').onclick = () => back();
+$('t-back').onclick = () => { if (S.screen === 'line') { const l = S.budget && S.budget.lines.find((x) => x.id === S.params.lineId); if (l) { leaveLine(l); return; } } back(); };
 
 function setTop(title, showBack, showTotal) {
   $('t-title').textContent = title; $('t-back').hidden = !showBack;
@@ -957,8 +957,13 @@ SCREENS.line = (app, p) => {
       h('div', { class: 'crumb', text: `${l.cat} › ${l.sub}` }),
       h('div', { class: 't', style: 'font-weight:600;font-size:1.05rem', text: l.name }),
       h('div', { class: 'row' }, h('span', { class: 'muted small', text: 'Line total' }), totalEl)),
-    h('div', { class: 'card' },
-      h('h2', { text: `Photos (${l.photoIds.length})` }), photos,
+    noSow ? h('div', { class: 'muted small', style: 'padding:0 4px 8px', text: 'Renovate with no client SOW: every line is PM-ADD.' }) :
+      h('div', { class: 'card' + (l.scope ? '' : ' need') },
+        h('div', { class: 'field' }, h('span', { text: l.scope ? 'MRI/SOW or PM-ADD' : 'MRI/SOW or PM-ADD (required: pick one)' }),
+          h('div', { class: 'seg' }, ...['MRI/SOW', 'PM-ADD'].map((v) => h('button', { class: l.scope === v ? 'on' : '', onclick: () => { l.scope = v; save(true); } }, v)))),
+        l.scope === 'PM-ADD' ? h('label', { class: 'field' }, h('span', { text: 'Why it\'s added (required)' }), h('input', { type: 'text', class: (l.pmAddDesc || '').trim() ? '' : 'need', oninput: (e) => { l.pmAddDesc = e.target.value.trim(); e.target.classList.toggle('need', !e.target.value.trim()); }, value: l.pmAddDesc, onchange: (e) => { l.pmAddDesc = e.target.value.trim(); save(); } })) : null),
+    h('div', { class: 'card' + (l.photoIds.length ? '' : ' need') },
+      h('h2', { text: l.photoIds.length ? `Photos (${l.photoIds.length})` : 'Photos (required: add at least one)' }), photos,
       h('div', { class: 'row' },
         h('button', { class: 'btn' + (b.header.photoMode === 'live' ? ' primary' : ''), onclick: () => openCamera(async (ids) => { l.photoIds.push(...ids); await save(true); }) }, 'Camera'),
         h('button', { class: 'btn' + (b.header.photoMode === 'roll' ? ' primary' : ''), onclick: () => pickFromLibrary(async (ids) => { l.photoIds.push(...ids); await save(true); }) }, 'Camera roll'),
@@ -975,10 +980,7 @@ SCREENS.line = (app, p) => {
         h('div', { class: 'note warn small', text: `Price changed from the list price (${money(l.catalogPrice)}). A reason is required; it goes on the exceptions report to the RD.` }),
         h('input', { type: 'text', class: l.priceReason ? '' : 'need', 'aria-label': 'Reason for the price change', value: l.priceReason, placeholder: 'Type the reason here (e.g., larger unit, vendor quote)', onchange: (e) => { l.priceReason = e.target.value.trim(); save(true); } })) : null,
       h('label', { class: 'field' }, h('span', { text: 'Vendor' }), h('select', { onchange: (e) => { l.slot = e.target.value; save(); } }, ...slotOpts)),
-      noSow ? h('div', { class: 'muted small', text: 'Renovate with no client SOW: every line is PM-ADD.' }) :
-        h('div', { class: 'field' }, h('span', { text: 'MRI/SOW or PM-ADD' }),
-          h('div', { class: 'seg' }, ...['MRI/SOW', 'PM-ADD'].map((v) => h('button', { class: l.scope === v ? 'on' : '', onclick: () => { l.scope = v; save(true); } }, v)))),
-      !noSow && l.scope === 'PM-ADD' ? h('label', { class: 'field' }, h('span', { text: 'Why it\'s added (required)' }), h('input', { type: 'text', class: (l.pmAddDesc || '').trim() ? '' : 'need', oninput: (e) => e.target.classList.toggle('need', !e.target.value.trim()), value: l.pmAddDesc, onchange: (e) => { l.pmAddDesc = e.target.value.trim(); save(); } })) : null),
+      null),
     h('div', { class: 'card' },
       h('label', { class: 'field' }, h('span', { text: 'Instructions to vendor' }),
         h('textarea', { value: l.notesVendor, oninput: (e) => { l.notesVendor = e.target.value; if (!l.customerEdited && !express) { l.notesCustomer = l.notesVendor; const c = $('cust'); if (c) c.value = l.notesCustomer; } }, onchange: () => save() })),
@@ -987,11 +989,27 @@ SCREENS.line = (app, p) => {
           h('textarea', { id: 'cust', value: l.notesCustomer, oninput: (e) => { l.notesCustomer = e.target.value; l.customerEdited = true; }, onchange: () => save(true) }))),
     h('button', { class: 'btn danger wide', onclick: () => openSheet(h('h2', { text: 'Delete this line?' }), h('div', { class: 'muted', text: `${l.name}. Its photos stay in the walk for other lines.` }),
       h('div', { class: 'row' }, h('button', { class: 'btn', onclick: closeSheet }, 'Keep it'), h('button', { class: 'btn danger', onclick: async () => { b.lines = b.lines.filter((x) => x !== l); await saveBudget(); closeSheet(); back(); } }, 'Delete line'))) }, 'Delete line'));
-  setFab(h('button', { class: 'btn primary', onclick: () => {
-    if (priceChanged && !l.priceReason) { alertNote('Add a reason for the price change first.'); return; }
-    back();
-  } }, 'Done'));
+  setFab(h('button', { class: 'btn primary', onclick: () => leaveLine(l) }, 'Done'));
 };
+// What a line still needs before it can be closed (forced once the line is opened).
+function lineNeeds(l) {
+  const b = S.budget; const out = [];
+  if (!l.photoIds.filter((id) => S.photos.has(id)).length) out.push('at least one photo');
+  if (needsChoice(b) && !l.scope) out.push('MRI/SOW or PM-ADD');
+  if (needsChoice(b) && l.scope === 'PM-ADD' && !(l.pmAddDesc || '').trim()) out.push('a reason for the PM-ADD');
+  if (!l.needsPricing && Math.abs((l.price || 0) - (l.catalogPrice || 0)) > 0.004 && !(l.priceReason || '').trim()) out.push('a reason for the price change');
+  if (!(l.qty > 0)) out.push('a quantity');
+  return out;
+}
+function leaveLine(l) {
+  const need = lineNeeds(l);
+  if (!need.length) { back(); return; }
+  openSheet(h('h2', { text: 'This line still needs' }),
+    h('div', { class: 'note warn' }, ...need.map((n) => h('div', { text: `• ${n}` }))),
+    h('div', { class: 'muted small', text: 'Finish it now so nothing is left for review. If the line isn\'t needed, delete it.' }),
+    h('button', { class: 'btn primary wide', onclick: () => { closeSheet(); window.scrollTo(0, 0); } }, 'Finish the line'),
+    h('button', { class: 'btn danger wide', onclick: async () => { S.budget.lines = S.budget.lines.filter((x) => x !== l); await saveBudget(); closeSheet(); back(); } }, 'Delete this line (its photos stay in the walk)'));
+}
 
 function measureSheet(l) {
   const st = { areas: l.measure ? l.measure.areas.map((a) => Object.assign({}, a)) : [], waste: l.measure ? l.measure.waste : (l.waste != null ? l.waste : (isFlooring(l) ? 10 : 0)), toNotes: /^Measurements: /m.test(l.notesVendor || ''), active: -1 };
