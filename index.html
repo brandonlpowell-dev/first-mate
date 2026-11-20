@@ -140,7 +140,7 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
 <script>
 (() => {
 'use strict';
-const VERSION = 'V4I2';
+const VERSION = 'V4I3';
 const MAX_EDGE = 3000, QUALITY = 0.85, THUMB = 240;
 const QTY_TYPES = ['Num of Units', 'Linear Ft', 'Sqft', 'Sqr Yards'];
 const UNIT_SHORT = { 'Num of Units': 'ea', 'Linear Ft': 'LF', 'Sqft': 'SF', 'Sqr Yards': 'SY' };
@@ -532,7 +532,7 @@ SCREENS.room = (app, p) => {
     list.append(h('button', { class: 'item', onclick: () => go('line', { lineId: l.id }) },
       first && S.photos.has(first) ? h('img', { class: 'thumb', src: thumbUrl(first), alt: '' }) : h('span', { class: 'thumb empty', text: 'no photo' }),
       h('div', { class: 'grow' }, h('div', { class: 't', text: l.name }),
-        !l.photoIds.length ? h('span', { class: 'pill warn', text: l.copied ? 'copied: add photo to review' : 'needs a photo' }) : null,
+        !l.photoIds.length ? h('span', { class: 'pill warn', text: l.copied ? 'copied: add photo to review' : 'needs a photo' }) : lineNeeds(l).length ? h('span', { class: 'pill warn', text: 'needs: ' + lineNeeds(l).join(', ') }) : null,
         h('div', { class: 's', text: `${l.qty} ${UNIT_SHORT[l.qtyType] || ''} · ${l.photoIds.length} photo${l.photoIds.length === 1 ? '' : 's'}${b.header.homeType === 'Express' || b.header.sow ? (l.scope ? ' · ' + l.scope : ' · MRI/SOW or PM-ADD?') : ''}` })),
       h('span', { class: 'amt', text: money(lineTotal(l)) })));
   }
@@ -1006,8 +1006,9 @@ function leaveLine(l) {
   if (!need.length) { back(); return; }
   openSheet(h('h2', { text: 'This line still needs' }),
     h('div', { class: 'note warn' }, ...need.map((n) => h('div', { text: `• ${n}` }))),
-    h('div', { class: 'muted small', text: 'Finish it now so nothing is left for review. If the line isn\'t needed, delete it.' }),
+    h('div', { class: 'muted small', text: 'Best to finish it now. Skip for now leaves it flagged in the room, and submit stays blocked until it\'s done.' }),
     h('button', { class: 'btn primary wide', onclick: () => { closeSheet(); window.scrollTo(0, 0); } }, 'Finish the line'),
+    h('button', { class: 'btn wide', onclick: () => { closeSheet(); back(); } }, 'Skip for now'),
     h('button', { class: 'btn danger wide', onclick: async () => { S.budget.lines = S.budget.lines.filter((x) => x !== l); await saveBudget(); closeSheet(); back(); } }, 'Delete this line (its photos stay in the walk)'));
 }
 
