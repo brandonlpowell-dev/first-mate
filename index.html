@@ -74,6 +74,15 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
 .thumb.empty { display: inline-flex; align-items: center; justify-content: center; color: var(--muted); font-size: .7rem; text-align: center; }
 .star { background: none; border: 0; font-size: 1.4rem; line-height: 1; width: 44px; height: 44px; color: var(--muted); flex: none; }
 .star.on { color: #e0a100; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); font-weight: 600; font-size: .9rem; }
+.chip.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.chip:disabled { opacity: .45; }
+.pkrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.pkrow .nm { flex: 1; min-width: 0; }
+.pkrow input.q { width: 84px; flex: 0 0 auto; }
+.pkrow .ck { width: 24px; height: 24px; flex: 0 0 auto; }
+.pkrow.off .nm { opacity: .5; }
 .pill { display: inline-block; font-size: .75rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .pill.warn { color: var(--warn); border-color: var(--warn); }
 .pill.ok { color: var(--ok); border-color: var(--ok); }
@@ -131,7 +140,7 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
 <script>
 (() => {
 'use strict';
-const VERSION = 'V3I3';
+const VERSION = 'V4I1';
 const MAX_EDGE = 3000, QUALITY = 0.85, THUMB = 240;
 const QTY_TYPES = ['Num of Units', 'Linear Ft', 'Sqft', 'Sqr Yards'];
 const UNIT_SHORT = { 'Num of Units': 'ea', 'Linear Ft': 'LF', 'Sqft': 'SF', 'Sqr Yards': 'SY' };
@@ -256,7 +265,7 @@ SCREENS.data = (app) => {
     h('div', { class: 'card' },
       h('h2', { text: 'Load the data file' }),
       h('p', { class: 'muted', text: 'First Mate needs its item, vendor and room lists. They are kept in a file you load once on this phone (not on the public website), then the tool works offline.' }),
-      h('p', { class: 'muted', text: 'Save first-mate-data-tampa-v1.json to Files (or iCloud Drive / OneDrive), then tap below and pick it.' }),
+      h('p', { class: 'muted', text: 'Save first-mate-data-tampa-v2.json to Files (or iCloud Drive / OneDrive), then tap below and pick it.' }),
       h('button', { class: 'btn primary wide', onclick: () => $('i-data').click() }, 'Choose data file'),
       S.dataError ? h('div', { class: 'note bad', text: S.dataError }) : null));
 };
@@ -528,6 +537,20 @@ SCREENS.room = (app, p) => {
       h('span', { class: 'amt', text: money(lineTotal(l)) })));
   }
   const ru = unassigned(b, r.id);
+  const menu = roomMenu(r.type);
+  if (menu.length) {
+    S.roomPkgSel = S.roomPkgSel && S.roomPkgSel.room === r.id ? S.roomPkgSel : { room: r.id, set: new Set() };
+    const sel = S.roomPkgSel.set;
+    const pcard = h('div', { class: 'card' });
+    const drawP = () => {
+      pcard.replaceChildren(h('div', { class: 'row' }, h('h2', { text: 'Packages' }), h('span', { class: 'muted small', style: 'flex:0 0 auto', text: 'optional' })),
+        h('div', { class: 'chips' }, ...menu.map((p) => pkgEmpty(p) ? h('button', { class: 'chip', disabled: true }, `${p.name} (no items yet)`) :
+          pkgTrivial(p) ? h('button', { class: 'chip', onclick: async () => { await pkgQuickAdd(p, r.id, ru.map((x) => x.id)); render(); } }, `+ ${p.name}`) :
+          h('button', { class: 'chip' + (sel.has(p.id) ? ' on' : ''), onclick: () => { if (sel.has(p.id)) sel.delete(p.id); else sel.add(p.id); drawP(); } }, p.name))),
+        sel.size ? h('button', { class: 'btn primary wide', style: 'margin-top:10px', onclick: () => { const ids = Array.from(sel); sel.clear(); pkgStart(r.id, ru.map((x) => x.id), ids); } }, `Next: pick lines (${pl(sel.size, 'package')})`) : null);
+    };
+    drawP(); app.append(pcard);
+  }
   app.append(h('div', { class: 'card' },
     h('div', { class: 'row' }, h('div', { class: 'muted small', text: `${pl(ls.length, 'line')} · ${money(ls.reduce((a, l) => a + lineTotal(l), 0))}` }),
       h('div', { style: 'display:flex;gap:8px;flex:0 0 auto' },
@@ -580,6 +603,7 @@ function reviewIssues(b) {
   if (!hd.propertyCode) blocks.push({ text: 'Property code is missing', go: () => go('header', {}) });
   if (!b.lines.length) blocks.push({ text: 'No lines yet', go: null });
   const room = (l) => { const r = b.rooms.find((x) => x.id === l.roomId); return r ? roomShort(r) : 'No room'; };
+  b.lines.filter((l) => !(l.qty > 0)).forEach((l) => blocks.push({ text: `Quantity needed: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
   b.lines.filter((l) => !l.photoIds.length).forEach((l) => blocks.push({ text: `Needs a photo: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
   if (hd.homeType === 'Express' || hd.sow) b.lines.filter((l) => !l.scope).forEach((l) => blocks.push({ text: `MRI/SOW or PM-ADD not chosen: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
   if (hd.homeType === 'Express' || hd.sow) b.lines.filter((l) => l.scope === 'PM-ADD' && !(l.pmAddDesc || '').trim()).forEach((l) => blocks.push({ text: `PM-ADD needs a reason: ${l.name}`, sub: room(l), go: () => go('line', { lineId: l.id }) }));
@@ -729,6 +753,12 @@ SCREENS.picker = (app, p) => {
   const st = S.pickerState = S.pickerState && S.pickerState.key === p.roomId ? S.pickerState : { key: p.roomId, q: '', cat: null, sub: null };
   const results = h('div', { class: 'list' });
   const choose = (it) => createLine(it, p.roomId, p.photoIds || []);
+  const room = S.budget.rooms.find((x) => x.id === p.roomId);
+  const pkRow = (pk) => h('button', { class: 'item', onclick: async () => {
+      if (pkgTrivial(pk)) { const l = await pkgQuickAdd(pk, p.roomId, p.photoIds || []); S.pickerState = null; S.screen = 'line'; S.params = { lineId: l.id, isNew: true }; render(); }
+      else { S.pickerState = null; pkgStart(p.roomId, p.photoIds || [], [pk.id], true); } } },
+    h('div', { class: 'grow' }, h('div', { class: 't', text: pk.name }), h('div', { class: 's', text: pkgKids(pk.id).length ? pkgKids(pk.id).map((k) => k.approach || k.name).join(' · ') : `${pl(pkgLines(pk).length, 'line')}` })),
+    h('span', { class: 'pill ok', text: 'package' }));
   const row = (it) => h('button', { class: 'item', onclick: () => choose(it) },
     h('div', { class: 'grow' }, h('div', { class: 't', text: it.n }), h('div', { class: 's', text: `${it.c} › ${it.s}` })),
     h('span', { class: 'amt', text: it.np ? 'price it' : money(it.p) }));
@@ -738,10 +768,14 @@ SCREENS.picker = (app, p) => {
     if (q) {
       const words = q.split(/\s+/);
       const hits = S.data.items.filter((it) => { const t = norm(`${it.n} ${it.s} ${it.c}`); return words.every((w) => t.includes(w)); }).slice(0, 60);
+      const ph = PKS().filter((pk) => !pk.parent && !pkgEmpty(pk) && (() => { const t = norm(`${pk.name} ${pk.aliases || ''}`); return words.every((w) => t.includes(w)); })()).slice(0, 5);
+      if (ph.length) results.append(h('div', { class: 'crumb', text: 'Packages' }), ...ph.map(pkRow));
       results.append(h('div', { class: 'crumb', text: `${hits.length}${hits.length === 60 ? '+' : ''} match${hits.length === 1 ? '' : 'es'}` }), ...hits.map(row));
       return;
     }
     if (!st.cat) {
+      const rm = room ? roomMenu(room.type).filter((pk) => !pkgEmpty(pk)) : [];
+      if (rm.length) results.append(h('div', { class: 'crumb', text: `Packages for ${roomShort(room)}` }), ...rm.map(pkRow));
       const rec = S.prefs.recent.map(itemById).filter(Boolean).slice(0, 8);
       if (rec.length) results.append(h('div', { class: 'crumb', text: 'Recent' }), ...rec.map(row));
       const cats = Array.from(new Set(S.data.items.map((i) => i.c))).sort();
@@ -765,17 +799,130 @@ SCREENS.picker = (app, p) => {
   draw();
 };
 
-async function createLine(it, roomId, photoIds) {
+function makeLine(it, roomId, photoIds) {
   const b = S.budget; const pg = b.vendors.find((v) => v.primary) || b.vendors[0];
   const noSow = b.header.homeType === 'Renovate' && !b.header.sow;
   const l = { id: uid(), roomId, itemId: it.id, name: it.n, cat: it.c, sub: it.s, qtyType: it.u, entry: it.e,
     qty: it.e === 'Lump sum' ? 1 : (prefill(it, b.header) ? prefill(it, b.header).qty : (it.d || 1)), prefill: prefill(it, b.header), waste: null, measure: null, price: it.p, catalogPrice: it.p, needsPricing: !!it.np, priceReason: '',
     slot: pg ? pg.slot : null, scope: noSow ? 'PM-ADD' : 'MRI/SOW', pmAddDesc: '', notesVendor: '', notesCustomer: '', customerEdited: false,
     photoIds: photoIds.slice(), created: Date.now() };
+  return l;
+}
+async function createLine(it, roomId, photoIds) {
+  const b = S.budget; const l = makeLine(it, roomId, photoIds);
   b.lines.push(l);
   S.prefs.recent = [it.id].concat(S.prefs.recent.filter((x) => x !== it.id)).slice(0, 20); await savePrefs();
   await saveBudget(); S.pickerState = null;
   S.screen = 'line'; S.params = { lineId: l.id, isNew: true }; render(); window.scrollTo(0, 0);
+}
+
+// ---------- Packages (milestone 4) ----------
+const PKS = () => S.data.packages || [];
+const pkgById = (id) => PKS().find((p) => p.id === id);
+const pkgKids = (id) => PKS().filter((p) => p.parent === id);
+const pkgLines = (p) => (p.lines || []).filter((x) => itemById(x.item));
+const roomMenu = (type) => (((S.data.roomMenus || {})[type]) || []).map(pkgById).filter(Boolean);
+const pkgEmpty = (p) => !pkgKids(p.id).length && !pkgLines(p).length;
+const pkgTrivial = (p) => { const ls = pkgLines(p); return !pkgKids(p.id).length && ls.length === 1 && !ls[0].group && ls[0].rule !== 'Measure' && ls[0].on; };
+const numH = (v) => { const n = parseFloat(String(v == null ? '' : v).replace(/,/g, '')); return isFinite(n) ? n : 0; };
+const needsChoice = (b) => b.header.homeType === 'Express' || b.header.sow;
+// One leaf package -> row states
+function pkgRows(p) {
+  const b = S.budget; const ua = numH(b.header.underAir), ur = numH(b.header.underRoof);
+  const rows = pkgLines(p).map((x) => ({ x, it: itemById(x.item), on: !!x.on, qty: 0, touched: false }));
+  const bandGroups = new Set(rows.filter((r) => r.x.rule === 'Size band').map((r) => r.x.group));
+  bandGroups.forEach((g) => { const gr = rows.filter((r) => r.x.group === g); const hit = gr.find((r) => ua >= (r.x.bf || 0) && ua <= (r.x.bt || 1e9)) || gr[0]; gr.forEach((r) => { r.on = r === hit; }); });
+  const base = (r) => { const x = r.x; if (r.it.e === 'Lump sum') return 1;
+    if (x.rule === 'Under air') return ua > 0 ? ua : 0; if (x.rule === 'Under roof') return ur > 0 ? ur : 0;
+    if (x.rule === 'Measure') return 0; if (x.rule === 'Size band') return 1; if (x.rule === 'Copy') return null; return numH(x.val) || 1; };
+  rows.forEach((r) => { const q = base(r); r.qty = q == null ? 0 : q; });
+  pkgCopy(rows); return rows;
+}
+function pkgCopy(rows) { rows.forEach((r) => { if (r.x.rule === 'Copy' && !r.touched) { const src = rows.find((s) => s.x.item === r.x.from); r.qty = src ? src.qty : 0; } }); }
+function pkgStart(roomId, photoIds, ids, replace) {
+  const secs = ids.map(pkgById).filter(Boolean).map((p) => {
+    const kids = pkgKids(p.id);
+    if (!kids.length) return { p, rows: pkgRows(p) };
+    const kidRows = {}; kids.forEach((k) => { kidRows[k.id] = pkgRows(k); });
+    return { p, kids, kidRows, pick: p.pick === 'Any' ? 'Any' : 'One', choice: p.pick === 'Any' ? new Set() : (p.default || kids[0].id) };
+  });
+  S.pkgState = { roomId, photoIds: photoIds || [], secs };
+  go('pkgcheck', { roomId }, replace);
+}
+function pkgLeaf(title, rows, redraw) {
+  const box = h('div', {});
+  if (title) box.append(h('div', { class: 'crumb', style: 'margin-top:10px', text: title }));
+  const seenGroups = new Set();
+  rows.open = rows.open || new Set();
+  rows.forEach((r) => {
+    const g = r.x.group;
+    if (g && !seenGroups.has(g)) {
+      seenGroups.add(g); const others = rows.filter((o) => o.x.group === g && !o.on).length;
+      box.append(h('div', { class: 'row', style: 'margin-top:8px' }, h('div', { class: 'muted small', text: `${g}: pick one` }),
+        others ? h('button', { class: 'btn slim', style: 'flex:0 0 auto;width:auto', onclick: () => { if (rows.open.has(g)) rows.open.delete(g); else rows.open.add(g); redraw(); } }, rows.open.has(g) ? 'Hide choices' : `${others} other choice${others === 1 ? '' : 's'}`) : null));
+    }
+    if (g && !r.on && !rows.open.has(g) && rows.some((o) => o.x.group === g && o.on)) return;
+    const unit = UNIT_SHORT[r.it.u] || r.it.u;
+    const q = h('input', { class: 'q', type: 'text', inputmode: 'decimal', value: r.on ? String(r.qty) : '', disabled: !r.on || r.it.e === 'Lump sum',
+      placeholder: r.x.rule === 'Measure' ? 'measure' : '', oninput: (e) => { r.qty = numH(e.target.value); r.touched = true; pkgCopy(rows); rows.forEach((o) => { if (o !== r && o.el) { const inp = o.el.querySelector('input.q'); if (inp && o.on && document.activeElement !== inp) inp.value = String(o.qty); } }); } });
+    const toggle = () => { if (g) { const was = r.on; rows.filter((o) => o.x.group === g).forEach((o) => { o.on = false; }); r.on = !was; if (r.on) rows.open.delete(g); else rows.open.add(g); } else r.on = !r.on; redraw(); };
+    const el = h('div', { class: 'pkrow' + (r.on ? '' : ' off') },
+      h('button', { class: 'chip' + (r.on ? ' on' : ''), style: 'min-height:32px;padding:0 10px;flex:0 0 auto', onclick: toggle }, g ? (r.on ? '●' : '○') : (r.on ? '✓' : '+')),
+      h('div', { class: 'nm' }, h('div', { class: 'small', text: r.it.n }), h('div', { class: 'muted small', text: `${r.it.np ? 'needs pricing' : money(r.it.p) + ' / ' + unit}${r.x.rule === 'Measure' ? ' · measure on site' : r.x.rule === 'Under air' ? ' · from under air' : r.x.rule === 'Under roof' ? ' · from under roof' : r.x.rule === 'Copy' ? ' · matches ' + ((itemById(r.x.from) || {}).n || '').slice(0, 30) : ''}` })),
+      q, h('span', { class: 'muted small', style: 'flex:0 0 28px', text: unit }));
+    r.el = el; box.append(el);
+  });
+  return box;
+}
+SCREENS.pkgcheck = (app) => {
+  const st = S.pkgState; const b = S.budget; if (!st) { back(); return; }
+  const r = b.rooms.find((x) => x.id === st.roomId); setTop(r ? roomShort(r) : 'Packages', true, true);
+  const wrap = h('div', {});
+  const draw = () => {
+    wrap.replaceChildren();
+    st.secs.forEach((s) => {
+      const card = h('div', { class: 'card' }, h('h2', { text: s.p.name }));
+      if (!s.kids) card.append(pkgLeaf('', s.rows, draw));
+      else if (s.pick === 'One') {
+        card.append(h('div', { class: 'seg' }, ...s.kids.map((k) => h('button', { class: s.choice === k.id ? 'on' : '', onclick: () => { s.choice = k.id; draw(); } }, k.approach || k.name))));
+        card.append(pkgLeaf('', s.kidRows[s.choice], draw));
+      } else {
+        card.append(h('div', { class: 'muted small', text: 'Pick any that apply' }), h('div', { class: 'chips', style: 'margin-top:6px' }, ...s.kids.map((k) => h('button', { class: 'chip' + (s.choice.has(k.id) ? ' on' : ''), onclick: () => { if (s.choice.has(k.id)) s.choice.delete(k.id); else s.choice.add(k.id); draw(); } }, k.approach || k.name))));
+        s.kids.filter((k) => s.choice.has(k.id)).forEach((k) => card.append(pkgLeaf(k.approach || k.name, s.kidRows[k.id], draw)));
+      }
+      wrap.append(card);
+    });
+    const n = pkgPicked(st).length;
+    setFab(h('button', { class: 'btn', onclick: () => { S.pkgState = null; back(); } }, 'Cancel'),
+      h('button', { class: 'btn primary', disabled: !n, onclick: pkgCreate }, n ? `Create ${pl(n, 'line')}` : 'Nothing picked'));
+  };
+  app.append(st.photoIds.length ? h('div', { class: 'note', text: `The new lines share ${pl(st.photoIds.length, 'photo')}.` }) : h('div', { class: 'muted small', style: 'padding:0 4px 8px', text: 'No photos yet; add them on each line, or take them first next time.' }), wrap);
+  draw();
+};
+function pkgPicked(st) {
+  const out = [];
+  st.secs.forEach((s) => {
+    const leafs = !s.kids ? [[s.p, s.rows]] : s.pick === 'One' ? [[pkgById(s.choice), s.kidRows[s.choice]]] : s.kids.filter((k) => s.choice.has(k.id)).map((k) => [k, s.kidRows[k.id]]);
+    leafs.forEach(([p, rows]) => rows.filter((r) => r.on).forEach((r) => out.push({ top: s.p, p, r })));
+  });
+  return out;
+}
+async function pkgCreate() {
+  const st = S.pkgState; const b = S.budget; const picked = pkgPicked(st); let zero = 0;
+  picked.forEach(({ top, p, r }) => {
+    const l = makeLine(r.it, st.roomId, st.photoIds);
+    if (r.it.e !== 'Lump sum') { l.qty = r.qty; if (r.x.rule !== 'Under air' && r.x.rule !== 'Under roof') l.prefill = null; }
+    if (!(l.qty > 0)) zero++;
+    l.pkg = p.id; l.pkgTop = top.id; if (needsChoice(b)) l.scope = null;
+    b.lines.push(l);
+  });
+  await saveBudget(); S.pkgState = null; back();
+  setTimeout(() => alertNote(`${pl(picked.length, 'line')} added.${zero ? ` ${pl(zero, 'line')} still need${zero === 1 ? 's' : ''} a quantity (Measure on the line).` : ''}${needsChoice(b) ? ' Choose MRI/SOW or PM-ADD on each before submit.' : ''}`), 50);
+}
+async function pkgQuickAdd(p, roomId, photoIds) {
+  const b = S.budget; const r = pkgRows(p)[0];
+  const l = makeLine(r.it, roomId, photoIds); if (r.it.e !== 'Lump sum') { l.qty = r.qty || 1; } l.pkg = p.id; l.pkgTop = p.id; if (needsChoice(b)) l.scope = null;
+  b.lines.push(l); await saveBudget(); return l;
 }
 
 // Line editor
@@ -1135,7 +1282,7 @@ async function copySummary() {
     `Data: ${S.data.label} v${S.data.version} (${S.data.items.length} items)`,
     `Walks: ${bs.length} · rooms ${bs.reduce((a, b) => a + b.rooms.length, 0)} · lines ${lines} · photos ${ps.length} (${(ps.reduce((a, p) => a + p.bytes, 0) / 1048576).toFixed(1)} MB)`,
     `Home screen: ${window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true ? 'yes' : 'no'}`,
-    ...bs.map((b) => { const bp = ps.filter((x) => x.budgetId === b.id); const on = new Set(b.lines.flatMap((l) => l.photoIds)); return `- ${b.header.address || '(no address)'} · ${b.status === 'Submitted' ? 'SUBMITTED' : 'draft'} · ${b.mode === 'photos' ? 'photos only' : 'full'} · photos ${bp.length} (not on a line ${bp.filter((x) => !on.has(x.id)).length}, additional ${bp.filter((x) => !x.roomId).length}) · blocks submit ${reviewIssues(b).blocks.length} · ${b.header.homeType} · copied lines ${b.lines.filter((l) => l.copied).length} · measured lines ${b.lines.filter((l) => l.measure).length} · ${b.rooms.length} rooms · ${b.lines.length} lines · ${money(budgetTotal(b))} · price changes ${b.lines.filter((l) => !l.needsPricing && Math.abs(l.price - l.catalogPrice) > 0.004).length} · PM-ADD ${b.lines.filter((l) => l.scope === 'PM-ADD').length} · lines without photos ${b.lines.filter((l) => !l.photoIds.length).length}`; }),
+    ...bs.map((b) => { const bp = ps.filter((x) => x.budgetId === b.id); const on = new Set(b.lines.flatMap((l) => l.photoIds)); return `- ${b.header.address || '(no address)'} · ${b.status === 'Submitted' ? 'SUBMITTED' : 'draft'} · ${b.mode === 'photos' ? 'photos only' : 'full'} · photos ${bp.length} (not on a line ${bp.filter((x) => !on.has(x.id)).length}, additional ${bp.filter((x) => !x.roomId).length}) · blocks submit ${reviewIssues(b).blocks.length} · ${b.header.homeType} · copied lines ${b.lines.filter((l) => l.copied).length} · measured lines ${b.lines.filter((l) => l.measure).length} · package lines ${b.lines.filter((l) => l.pkg).length} · ${b.rooms.length} rooms · ${b.lines.length} lines · ${money(budgetTotal(b))} · price changes ${b.lines.filter((l) => !l.needsPricing && Math.abs(l.price - l.catalogPrice) > 0.004).length} · PM-ADD ${b.lines.filter((l) => l.scope === 'PM-ADD').length} · lines without photos ${b.lines.filter((l) => !l.photoIds.length).length}`; }),
     `Browser: ${navigator.userAgent}`].join('\n');
   try { await navigator.clipboard.writeText(txt); alertNote('Copied. Paste it into your chat with Claude.'); }
   catch (e) { openSheet(h('div', { class: 'muted small', text: 'Select all and copy:' }), h('textarea', { value: txt, style: 'min-height:200px;font-family:var(--mono);font-size:12px' }), h('button', { class: 'btn wide', onclick: closeSheet }, 'Close')); }
